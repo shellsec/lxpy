@@ -27,10 +27,23 @@ A small Python tool that talks to the LX Music desktop Open API: skip tracks, pl
   <img src="docs/screenshots/03-dark-lyrics.png" width="180" alt="Dark theme: full lyrics">
   <img src="docs/screenshots/04-dark-playing.png" width="180" alt="Dark theme: playing">
 </p>
+<p align="center"><sub>Phone web remote: dark / light / high-contrast, with progress, lyrics, volume, and skip.</sub></p>
+
+## Use cases
+
+### Scan the QR code in WeChat to control LX Music on the PC
+
+LX Music is playing on the computer. Phone and PC are on the **same Wi-Fi**. Double-click `lx启动.bat` (or `./lx启动.sh` on macOS / Linux). The console prints the LAN URL and draws a **black-on-white** QR code. Open WeChat **Scan**, point at that code — no extra app, no typing an IP — and skip, pause, change volume, or read lyrics from the phone.
+
 <p align="center">
   <img src="docs/screenshots/05-desktop-qr.jpg" width="480" alt="Console QR code and LX Music desktop">
 </p>
-<p align="center"><sub>Phone web remote: dark / light / high-contrast, with progress, lyrics, volume, and skip. The console prints the LAN URL and a WeChat QR code.</sub></p>
+
+- Scan `http://192.168.x.x:23333`. **Do not** scan `127.0.0.1` (that URL is only for the PC itself).
+- If the console font smears the code, open `remote-qr.png` in the same folder and scan that.
+- If the phone cannot open it: same Wi-Fi, and allow **TCP 23333** through the firewall.
+
+You can also use the CLI REPL on the same computer; Windows supports `--keys` for single-key control. Full steps are in **Phone web remote** below.
 
 Official docs: <https://lyswhut.github.io/lx-music-doc/desktop/open-api> (**v2.7.0+**; older desktop builds are not guaranteed.)
 

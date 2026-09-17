@@ -27,10 +27,23 @@
   <img src="docs/screenshots/03-dark-lyrics.png" width="180" alt="深色主题：全文歌词">
   <img src="docs/screenshots/04-dark-playing.png" width="180" alt="深色主题：播放中">
 </p>
+<p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。</sub></p>
+
+## 使用场景
+
+### 微信扫码，直接控制电脑上的洛雪
+
+电脑开着洛雪在放歌，手机和电脑连**同一 Wi-Fi**。双击 `lx启动.bat`（macOS / Linux 用 `./lx启动.sh`）后，控制台会打印局域网地址，并画出一张**白底黑码**的二维码。用微信 **扫一扫** 扫这个码，不用装 App、不用手输 IP，就能在手机里切歌、暂停、调音量、看歌词。
+
 <p align="center">
   <img src="docs/screenshots/05-desktop-qr.jpg" width="480" alt="控制台二维码与洛雪桌面端">
 </p>
-<p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。电脑控制台会打印局域网地址和微信扫码二维码。</sub></p>
+
+- 扫的是 `http://192.168.x.x:23333`，**不要扫** `127.0.0.1`（那是电脑自己访问用的）。
+- 控制台字体把码扫花时，打开同目录的 `remote-qr.png` 再扫。
+- 手机打不开：同一 Wi-Fi，防火墙放行 **TCP 23333**。
+
+同一台电脑上也可以用命令行 REPL 切歌；Windows 可用 `--keys` 单键控制。详细步骤见下方「手机网页遥控」。
 
 官方文档：<https://lyswhut.github.io/lx-music-doc/desktop/open-api>（**v2.7.0+**；不保证更早的桌面端。）
 
