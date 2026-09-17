@@ -2,6 +2,8 @@
 cd /d "%~dp0"
 chcp 65001 >nul
 
+if not defined LX_API_HOST set "LX_API_HOST=127.0.0.1"
+
 set "PY="
 where python >nul 2>&1
 if not errorlevel 1 set "PY=python"

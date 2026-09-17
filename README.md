@@ -45,13 +45,13 @@
 
 同一台电脑上也可以用命令行 REPL 切歌；Windows 可用 `--keys` 单键控制。详细步骤见下方「手机网页遥控」。
 
-> **本机 `--web` / `lx启动.bat` 可自动开启开放 API。** 官方洛雪没有命令行开关。脚本在本机自动拉起桌面端（当时没在运行）时，会先把配置里的 `openAPI.enable` 写成 `true`。已在运行时需重启或手动勾选。详见下方「洛雪里怎么开 API」。
+> **本机 `--web` / `lx启动.bat` / `lx启动.sh` 可自动开启开放 API。** 官方洛雪没有命令行开关。脚本在本机自动拉起桌面端（当时没在运行）时，会先把配置里的 `openAPI.enable` 写成 `true`。Windows / macOS / Linux 都支持。已在运行时需重启或手动勾选。详见下方「洛雪里怎么开 API」。
 
 官方文档：<https://lyswhut.github.io/lx-music-doc/desktop/open-api>（**v2.7.0+**；不保证更早的桌面端。）
 
 ## 洛雪里怎么开 API
 
-官方桌面端**没有**命令行参数可启用开放 API。本机用 `--web` / `lx启动.bat` 时，若开放 API 还没起来、且洛雪当时**没在运行**，脚本会在自动启动前写入配置：
+官方桌面端**没有**命令行参数可启用开放 API。本机用 `--web` / `lx启动.bat` / `lx启动.sh` 时，若开放 API 还没起来、且洛雪当时**没在运行**，脚本会在自动启动前写入配置：
 
 - 把 `setting["openAPI.enable"]` 写成 `true`
 - 配置文件：便携版为 `安装目录/portable/userData/LxDatas/config_v2.json`；否则为 `%APPDATA%\lx-music-desktop\LxDatas\config_v2.json`（macOS：`~/Library/Application Support/lx-music-desktop/LxDatas/config_v2.json`；Linux：`~/.config/lx-music-desktop/LxDatas/config_v2.json`）
@@ -81,7 +81,7 @@
 
 电脑和手机连**同一 Wi-Fi / 局域网**。对应系统的**洛雪桌面端**需要已安装。本机 `--web` 自动启动时可写入开放 API 开关（见「洛雪里怎么开 API」）；也可以在 **设置 → 开放 API** 里手动勾选。
 
-`--web` / `启动.bat` 时：若本机开放 API 还没起来，脚本会尝试启动洛雪桌面端（已在运行则不再开一份），最多等约 40 秒。本机自动启动前会写入开放 API 开关（见「洛雪里怎么开 API」）。脚本可放在安装目录或其子目录（例如 `D:\Program Files\lx-music-desktop\lxpy`），会向上查找 `lx-music-desktop.exe`。找不到时，可设环境变量 `LX_APP`，或 `--lx-exe`，或在 `lx_remote_state.json` 写入 `"lxExe"`。不想自动启动：`--no-launch`。命令行 REPL / `--keys` 不会自动开洛雪。
+`--web` / `启动.bat` / `启动.sh` 时：若本机开放 API 还没起来，脚本会尝试启动洛雪桌面端（已在运行则不再开一份），最多等约 40 秒。本机自动启动前会写入开放 API 开关（见「洛雪里怎么开 API」）。**Windows / macOS / Linux 在本机 `--web` 下都支持自动查找桌面端、自动启动、并在未运行时写入开放 API**，路径因系统而异：Windows 为 `lx-music-desktop.exe`（安装目录向上查找、Program Files、注册表）；macOS 为 `/Applications/lx-music-desktop.app`（`open -a`）；Linux 为 PATH、`/opt`、`~/.local`、AppImage 以及已安装的 snap/flatpak。脚本可放在安装目录或其子目录（例如 `D:\Program Files\lx-music-desktop\lxpy`）。找不到时，可设环境变量 `LX_APP`，或 `--lx-exe`，或在 `lx_remote_state.json` 写入 `"lxExe"`。不想自动启动：`--no-launch`。命令行 REPL / `--keys` 不会自动开洛雪。
 
 | 系统 | 怎么启动 |
 | --- | --- |
@@ -235,7 +235,7 @@ REPL 里 `next` / `play-next` 都会打到 `/skip-next`。官方没有播放模�
 | 手机打不开网页 | 电脑没开 `--web`、不是同一 Wi-Fi、防火墙拦了 **23333** |
 | 微信扫码进不去 | 扫的应是 `http://电脑局域网IP:23333`；可改扫 `remote-qr.png`；检查防火墙 23333 |
 | 网页能开但显示连不上洛雪 | 洛雪没开、端口不对，或脚本连的不是洛雪那台（本机用 `127.0.0.1`，跨设备要勾「允许来自局域网的访问」） |
-| 提示未找到洛雪桌面端 | 安装洛雪后重试；或设 `LX_APP` / `--lx-exe` 指向 `lx-music-desktop.exe` |
+| 提示未找到洛雪桌面端 | 安装洛雪后重试；或设 `LX_APP` / `--lx-exe` 指向本机可执行文件（Windows：`lx-music-desktop.exe`；macOS：`lx-music-desktop.app`；Linux：`lx-music-desktop` 或 AppImage） |
 | 进程已在运行但 API 连不上 | 已在运行时无法热启用 API：请勾选 **设置 → 开放 API → 启用**，或退出洛雪后再用 `--web` / `启动.bat` 让脚本启动前写入配置 |
 | 连接被拒绝 / 超时 / 连不上 | 洛雪没开、没勾「允许来自局域网的访问」、IP/端口不对、防火墙拦了 23330 |
 | 只能 `127.0.0.1` 通、局域网 IP 不通 | 未勾选 **允许来自局域网的访问**（否则只监听 127.0.0.1） |

@@ -90,8 +90,12 @@ def env_or(name, default):
     return default if value is None or value == "" else value
 
 
+def _script_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def _state_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "lx_remote_state.json")
+    return os.path.join(_script_dir(), "lx_remote_state.json")
 
 
 def load_state():
@@ -1382,17 +1386,10 @@ def _win_run(cmd):
     return subprocess.check_output(cmd, **kwargs)
 
 
-def lx_desktop_running():
-    if sys.platform == "win32":
-        try:
-            raw = _win_run(["tasklist", "/FI", "IMAGENAME eq lx-music-desktop.exe", "/NH"])
-            text = raw.decode("mbcs", "replace").lower()
-            return "lx-music-desktop.exe" in text
-        except Exception:
-            return False
+def _pgrep_exact(name):
     try:
         subprocess.check_call(
-            ["pgrep", "-x", "lx-music-desktop"],
+            ["pgrep", "-x", name],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -1401,13 +1398,115 @@ def lx_desktop_running():
         return False
 
 
+def lx_desktop_running():
+    if sys.platform == "win32":
+        try:
+            raw = _win_run(["tasklist", "/FI", "IMAGENAME eq lx-music-desktop.exe", "/NH"])
+            text = raw.decode("mbcs", "replace").lower()
+            return "lx-music-desktop.exe" in text
+        except Exception:
+            return False
+    # Linux comm 最长 15 字符，lx-music-desktop 会被截成 lx-music-deskto
+    for name in ("lx-music-desktop", "lx-music-deskto"):
+        if _pgrep_exact(name):
+            return True
+    try:
+        raw = subprocess.check_output(
+            ["ps", "-ax", "-o", "args="],
+            stderr=subprocess.DEVNULL,
+        )
+        text = raw.decode("utf-8", "replace")
+    except Exception:
+        return False
+    for line in text.splitlines():
+        low = line.lower()
+        if "lx-music-desktop" not in low:
+            continue
+        if "lx_control" in low:
+            continue
+        return True
+    return False
+
+
 def _looks_like_lx_exe(path):
     if not path:
         return False
-    name = os.path.basename(path.rstrip("\\/")).lower()
-    if name.endswith(".app"):
-        return os.path.isdir(path) and ("lx-music" in name or "洛雪" in name)
-    return name in ("lx-music-desktop.exe", "lx-music-desktop") and os.path.isfile(path)
+    name = os.path.basename(path.rstrip("\\/"))
+    lower = name.lower()
+    if lower.endswith(".app"):
+        return os.path.isdir(path) and ("lx-music" in lower or "洛雪" in name)
+    if not os.path.isfile(path):
+        return False
+    if lower in ("lx-music-desktop.exe", "lx-music-desktop"):
+        return True
+    if lower.endswith(".appimage") and "lx-music" in lower:
+        return True
+    return False
+
+
+def _lx_exe_names():
+    if sys.platform == "win32":
+        return ("lx-music-desktop.exe",)
+    if sys.platform == "darwin":
+        return ("lx-music-desktop.app", "LX Music.app")
+    return ("lx-music-desktop",)
+
+
+def _lx_exes_in_dir(folder):
+    """当前目录下一层：精确名、AppImage、.app，以及 /opt/lx-music-desktop/ 里的二进制。"""
+    found = []
+    folder = os.path.abspath(folder or "")
+    if not folder or not os.path.isdir(folder):
+        return found
+    for name in _lx_exe_names():
+        path = os.path.join(folder, name)
+        if _looks_like_lx_exe(path) and path not in found:
+            found.append(path)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return found
+    for name in names:
+        path = os.path.join(folder, name)
+        if _looks_like_lx_exe(path) and path not in found:
+            found.append(path)
+            continue
+        if not os.path.isdir(path):
+            continue
+        lower = name.lower()
+        if "lx-music" not in lower and "洛雪" not in name:
+            continue
+        nested = os.path.join(path, "lx-music-desktop")
+        if _looks_like_lx_exe(nested) and nested not in found:
+            found.append(nested)
+        nested_app = os.path.join(path, "lx-music-desktop.app")
+        if _looks_like_lx_exe(nested_app) and nested_app not in found:
+            found.append(nested_app)
+    return found
+
+
+def _lx_exes_from_parents(start, limit=8):
+    """从脚本所在目录向上找桌面端，兼容放在安装目录子文件夹（如 ...\\lx-music-desktop\\lxpy）。"""
+    found = []
+    folder = os.path.abspath(start or "")
+    if not folder:
+        return found
+    if os.path.isfile(folder):
+        folder = os.path.dirname(folder)
+    seen = set()
+    steps = max(1, int(limit))
+    for _ in range(steps):
+        if not folder or folder in seen:
+            break
+        seen.add(folder)
+        for path in _lx_exes_in_dir(folder):
+            if path not in found:
+                found.append(path)
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    return found
 
 
 def _strip_icon_index(path):
@@ -1481,6 +1580,12 @@ def _candidate_lx_exes(explicit=None):
     add(env_or("LX_APP", ""))
     add(env_or("LX_EXE", ""))
     add(load_state().get("lxExe") or "")
+    for item in _lx_exes_from_parents(_script_dir()):
+        add(item)
+    cwd = os.getcwd()
+    if os.path.abspath(cwd) != os.path.abspath(_script_dir()):
+        for item in _lx_exes_from_parents(cwd):
+            add(item)
 
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA") or ""
@@ -1499,9 +1604,13 @@ def _candidate_lx_exes(explicit=None):
         for item in _win_registry_exes():
             add(item)
     elif sys.platform == "darwin":
+        for folder in ("/Applications", os.path.expanduser("~/Applications")):
+            for item in _lx_exes_in_dir(folder):
+                add(item)
         add("/Applications/lx-music-desktop.app")
         add("/Applications/LX Music.app")
         add(os.path.expanduser("~/Applications/lx-music-desktop.app"))
+        add(os.path.expanduser("~/Applications/LX Music.app"))
     else:
         which = None
         try:
@@ -1510,6 +1619,26 @@ def _candidate_lx_exes(explicit=None):
         except Exception:
             which = None
         add(which)
+        home = os.path.expanduser("~")
+        for path in (
+            "/usr/bin/lx-music-desktop",
+            "/usr/local/bin/lx-music-desktop",
+            os.path.join(home, ".local", "bin", "lx-music-desktop"),
+            "/opt/lx-music-desktop/lx-music-desktop",
+            "/snap/bin/lx-music-desktop",
+            os.path.join(home, ".local", "share", "flatpak", "exports", "bin", "lx-music-desktop"),
+            "/var/lib/flatpak/exports/bin/lx-music-desktop",
+        ):
+            add(path)
+        for folder in (
+            "/opt",
+            os.path.join(home, "Applications"),
+            os.path.join(home, ".local", "bin"),
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "Downloads"),
+        ):
+            for item in _lx_exes_in_dir(folder):
+                add(item)
 
     return ordered
 
@@ -1519,8 +1648,207 @@ def find_lx_exe(explicit=None):
     return found[0] if found else ""
 
 
+def _lx_config_v2_path(exe=None):
+    """洛雪设置文件：LxDatas/config_v2.json（便携版优先，其次各平台默认目录）。"""
+    candidates = []
+
+    def add(path):
+        path = os.path.expandvars(os.path.expanduser(path or ""))
+        if path and path not in candidates:
+            candidates.append(path)
+
+    exe = os.path.abspath(exe) if exe else ""
+    if exe:
+        folder = os.path.dirname(exe)
+        if exe.rstrip("\\/").lower().endswith(".app"):
+            folder = os.path.dirname(exe)
+        portable = os.path.join(folder, "portable")
+        portable_cfg = os.path.join(portable, "userData", "LxDatas", "config_v2.json")
+        if os.path.isdir(portable):
+            return portable_cfg
+        add(portable_cfg)
+
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA") or ""
+        if appdata:
+            add(os.path.join(appdata, "lx-music-desktop", "LxDatas", "config_v2.json"))
+    elif sys.platform == "darwin":
+        add("~/Library/Application Support/lx-music-desktop/LxDatas/config_v2.json")
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        add(os.path.join(xdg, "lx-music-desktop", "LxDatas", "config_v2.json"))
+        add("~/.var/app/cn.toside.lx-music-desktop/config/lx-music-desktop/LxDatas/config_v2.json")
+        add(
+            "~/.var/app/io.github.lyswhut.lx-music-desktop/config/lx-music-desktop/LxDatas/config_v2.json"
+        )
+
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return candidates[0] if candidates else ""
+
+
+def _write_json_atomic(path, data):
+    folder = os.path.dirname(path)
+    tmp = os.path.join(folder, "config_v2.{}.temp".format(int(time.time() * 1000) % 1000000000))
+    text = json.dumps(data, ensure_ascii=False, indent="\t")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def ensure_open_api_setting(exe=None, port=None):
+    """仅合并 openAPI.enable（及缺省端口），不改 bindLan 等其它项。
+
+    必须在洛雪未运行时调用，否则进程内设置会盖回文件。
+    返回 already / enabled / missing / failed。
+    """
+    path = _lx_config_v2_path(exe)
+    if not path or not os.path.isfile(path):
+        return "missing"
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return "failed"
+    if not isinstance(data, dict):
+        return "failed"
+    setting = data.get("setting")
+    if not isinstance(setting, dict):
+        return "failed"
+
+    want_port = str(DEFAULT_PORT if port is None else port)
+    changed = False
+    if setting.get("openAPI.enable") is not True:
+        setting["openAPI.enable"] = True
+        changed = True
+    current_port = setting.get("openAPI.port")
+    if current_port is None or current_port == "":
+        setting["openAPI.port"] = want_port
+        changed = True
+    if not changed:
+        return "already"
+    data["setting"] = setting
+    try:
+        _write_json_atomic(path, data)
+    except Exception:
+        return "failed"
+    return "enabled"
+
+
+def _cmd_exists(name):
+    try:
+        import shutil
+        return bool(shutil.which(name))
+    except Exception:
+        return False
+
+
+def _linux_desktop_installed(desktop_id):
+    for folder in (
+        "/usr/share/applications",
+        "/usr/local/share/applications",
+        os.path.expanduser("~/.local/share/applications"),
+        "/var/lib/snapd/desktop/applications",
+    ):
+        if os.path.isfile(os.path.join(folder, desktop_id + ".desktop")):
+            return True
+    return False
+
+
+def _flatpak_app_installed(app_id):
+    if not _cmd_exists("flatpak"):
+        return False
+    try:
+        subprocess.check_call(
+            ["flatpak", "info", app_id],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _launch_lx_by_platform_name():
+    """找不到可执行文件时：macOS 按应用名 open -a；Linux 仅在已安装时 gtk-launch / flatpak / snap。"""
+    if sys.platform == "darwin":
+        for name in ("lx-music-desktop", "LX Music"):
+            try:
+                ret = subprocess.call(
+                    ["open", "-a", name],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if ret == 0:
+                    return True
+            except Exception:
+                continue
+        return False
+    if sys.platform == "win32":
+        return False
+    if _linux_desktop_installed("lx-music-desktop") and _cmd_exists("gtk-launch"):
+        try:
+            subprocess.Popen(
+                ["gtk-launch", "lx-music-desktop"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+    for app_id in (
+        "cn.toside.lx-music-desktop",
+        "io.github.lyswhut.lx-music-desktop",
+    ):
+        if _flatpak_app_installed(app_id):
+            try:
+                subprocess.Popen(
+                    ["flatpak", "run", app_id],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+            except Exception:
+                continue
+    if _cmd_exists("snap") and os.path.exists("/snap/bin/lx-music-desktop"):
+        try:
+            subprocess.Popen(
+                ["snap", "run", "lx-music-desktop"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _ensure_executable(path):
+    if sys.platform == "win32" or not path:
+        return
+    try:
+        if os.path.isfile(path) and not os.access(path, os.X_OK):
+            mode = os.stat(path).st_mode
+            os.chmod(path, mode | 0o111)
+    except OSError:
+        pass
+
+
 def launch_lx_exe(exe):
-    if sys.platform == "darwin" and exe.endswith(".app"):
+    if sys.platform == "darwin" and exe.rstrip("/").endswith(".app"):
         subprocess.Popen(
             ["open", "-a", exe],
             stdin=subprocess.DEVNULL,
@@ -1528,6 +1856,8 @@ def launch_lx_exe(exe):
             stderr=subprocess.DEVNULL,
         )
         return
+    if sys.platform != "win32":
+        _ensure_executable(exe)
     kwargs = {
         "cwd": os.path.dirname(exe) or None,
         "stdin": subprocess.DEVNULL,
@@ -1546,16 +1876,16 @@ def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, la
 
     host, port, scheme = _base_host_port(base_url)
     loop_url = "{}://127.0.0.1:{}".format(scheme, port)
+    if host not in ("127.0.0.1", "localhost") and api_is_up(loop_url, token, 1.2):
+        _say_launch("本机 127.0.0.1:{} 已可连，改走回环（不必勾选局域网访问）。".format(port))
+        return loop_url
+
     local = is_local_api_host(host)
     if not local:
         _say_launch(
             "洛雪 API 连不上 {}，目标不是本机，不会自动启动桌面端。".format(base_url)
         )
         return base_url
-
-    if host not in ("127.0.0.1", "localhost") and api_is_up(loop_url, token, 1.2):
-        _say_launch("本机 127.0.0.1:{} 已可连，改走回环（不必勾选局域网访问）。".format(port))
-        return loop_url
 
     if not launch:
         return base_url
@@ -1564,26 +1894,51 @@ def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, la
     already = lx_desktop_running()
     if already:
         _say_launch(
-            "洛雪进程已在运行，但开放 API 连不上。请在洛雪里：设置 → 开放 API → 勾选「启用开放 API 服务」（端口 {}）。".format(
-                port
-            )
+            "洛雪进程已在运行，但开放 API 连不上。请在洛雪里：设置 → 开放 API → 勾选「启用开放 API 服务」（端口 {}）。"
+            "已在运行时改配置不会立刻生效，需重启洛雪或手动勾选。".format(port)
         )
     else:
         exe = find_lx_exe(explicit_exe)
-        if not exe:
+        api_cfg = ensure_open_api_setting(exe, port)
+        if api_cfg == "enabled":
+            _say_launch("已在洛雪配置中启用开放 API（端口沿用已有值，缺省 {}）。".format(port))
+        elif api_cfg == "already":
+            _say_launch("洛雪配置里已启用开放 API。")
+        elif api_cfg == "missing":
             _say_launch(
-                "未找到洛雪桌面端（lx-music-desktop.exe）。请先安装洛雪音乐，"
+                "未找到洛雪配置文件，无法自动勾选开放 API。启动后若仍连不上，请手动：设置 → 开放 API → 启用。"
+            )
+        else:
+            _say_launch("未能自动写入开放 API 配置，请稍后在洛雪里手动勾选启用。")
+        launched = False
+        if exe:
+            _say_launch("未连上洛雪，正在启动：{}".format(exe))
+            try:
+                launch_lx_exe(exe)
+                launched = True
+                save_state({"lxExe": exe})
+            except Exception as exc:
+                _say_launch("启动洛雪失败：{}".format(exc))
+                return base_url
+        elif _launch_lx_by_platform_name():
+            launched = True
+            if sys.platform == "darwin":
+                _say_launch("未连上洛雪，已用 open -a 按应用名启动桌面端。")
+            else:
+                _say_launch("未连上洛雪，已按系统已安装的桌面项/flatpak/snap 启动。")
+        if not launched:
+            if sys.platform == "darwin":
+                hint = "lx-music-desktop.app（常见于 /Applications）"
+            elif sys.platform == "win32":
+                hint = "lx-music-desktop.exe"
+            else:
+                hint = "lx-music-desktop 或 lx-music-desktop*.AppImage"
+            _say_launch(
+                "未找到洛雪桌面端（{}）。请先安装洛雪音乐，"
                 "或设置环境变量 LX_APP / 启动参数 --lx-exe，"
-                "或在 lx_remote_state.json 写入 \"lxExe\"。"
+                "或在 lx_remote_state.json 写入 \"lxExe\"。".format(hint)
             )
             return base_url
-        _say_launch("未连上洛雪，正在启动：{}".format(exe))
-        try:
-            launch_lx_exe(exe)
-        except Exception as exc:
-            _say_launch("启动洛雪失败：{}".format(exc))
-            return base_url
-        save_state({"lxExe": exe})
 
     _say_launch("等待开放 API（最多 {:.0f} 秒）…".format(wait_s))
     deadline = time.time() + wait_s
@@ -1736,10 +2091,6 @@ class WebHandler(BaseHTTPRequestHandler):
             _, status = do_control(base, SIMPLE_API[path], token, timeout)
             return status or get_status(base, token, timeout)
         raise RuntimeError("未知接口：{}".format(path))
-
-
-def _script_dir():
-    return os.path.dirname(os.path.abspath(__file__))
 
 
 def _enable_win_console():
@@ -1901,7 +2252,7 @@ def parse_args(argv):
     parser.add_argument(
         "--host",
         default=None,
-        help="洛雪 Open API 主机。默认 192.168.31.169，或 LX_API_HOST；洛雪在本机时用 127.0.0.1",
+        help="洛雪 Open API 主机。命令行默认 192.168.31.169；--web 未指定时默认 127.0.0.1，或 LX_API_HOST",
     )
     parser.add_argument("--port", type=int, default=None, help="默认 23330，或环境变量 LX_API_PORT")
     parser.add_argument("--url", default=None, help="完整基址，如 http://192.168.31.169:23330，或 LX_API_URL")
@@ -1936,6 +2287,10 @@ def parse_args(argv):
 
 def main(argv=None):
     args = parse_args(argv)
+    # 网页遥控未指定主机时连本机，避免默认局域网 IP 换网段后被当成远程而不自动启动
+    if args.web and args.host is None and args.url is None:
+        if not env_or("LX_API_HOST", "") and not env_or("LX_API_URL", ""):
+            args.host = "127.0.0.1"
     base_url = build_base_url(args)
     token = args.token if args.token is not None else env_or("LX_API_TOKEN", "")
     token = token or None
