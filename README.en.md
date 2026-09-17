@@ -45,9 +45,22 @@ LX Music is playing on the computer. Phone and PC are on the **same Wi-Fi**. Dou
 
 You can also use the CLI REPL on the same computer; Windows supports `--keys` for single-key control. Full steps are in **Phone web remote** below.
 
+> **Local `--web` / `lx启动.bat` can turn Open API on automatically.** Official LX Music has no CLI flag for this. When the script auto-launches the desktop app locally (and it is not already running), it writes `openAPI.enable` to `true` first. If LX Music is already running, restart it or enable Open API by hand. See **Enable the API in LX Music** below.
+
 Official docs: <https://lyswhut.github.io/lx-music-doc/desktop/open-api> (**v2.7.0+**; older desktop builds are not guaranteed.)
 
 ## Enable the API in LX Music
+
+Official LX Music has **no** CLI flag to enable Open API. With local `--web` / `lx启动.bat`, if the Open API is not up yet **and** LX Music is **not** already running, the script writes the desktop config before auto-launch:
+
+- Sets `setting["openAPI.enable"]` to `true`
+- Config file: portable install uses `install-dir/portable/userData/LxDatas/config_v2.json`; otherwise `%APPDATA%\lx-music-desktop\LxDatas\config_v2.json` (macOS: `~/Library/Application Support/lx-music-desktop/LxDatas/config_v2.json`; Linux: `~/.config/lx-music-desktop/LxDatas/config_v2.json`)
+- Keeps an existing port; defaults to `23330` if missing
+- Does **not** auto-enable **Allow access from LAN** (`bindLan`). Local web remote usually does not need it; tick it yourself for another machine
+
+If LX Music is **already running**, that config write will not take effect until you restart the desktop app, or enable it by hand in settings as below. To skip auto-launch: `--no-launch`.
+
+To enable it yourself:
 
 1. Open **LX Music Desktop** (**v2.7.0** or later).
 2. **Settings → Open API**.
@@ -66,9 +79,9 @@ Protocol: **HTTP GET only**. Live status uses **SSE** (`/subscribe-player-status
 
 ## Phone web remote (recommended)
 
-Phone and computer must be on the **same Wi-Fi / LAN**. The matching **LX Music desktop** app must be installed, with **Open API** enabled.
+Phone and computer must be on the **same Wi-Fi / LAN**. The matching **LX Music desktop** app must be installed. A local `--web` auto-launch can write the Open API switch (see **Enable the API in LX Music**); you can also tick it yourself under **Settings → Open API**.
 
-With `--web` / `lx启动.bat`, if the Open API is not up yet, the script tries to launch LX Music desktop (it will not start a second copy if one is already running) and waits up to about 40 seconds. If the install path cannot be found, set `LX_APP`, `--lx-exe`, or `"lxExe"` in `lx_remote_state.json`. To skip auto-launch: `--no-launch`. The CLI REPL / `--keys` modes do not auto-start LX Music.
+With `--web` / `lx启动.bat`, if the Open API is not up yet, the script tries to launch LX Music desktop (it will not start a second copy if one is already running) and waits up to about 40 seconds. Before a local auto-launch it writes the Open API switch (see **Enable the API in LX Music**). You can keep the script in the install folder or a subfolder (for example `D:\Program Files\lx-music-desktop\lxpy`); it walks parent directories to find `lx-music-desktop.exe`. If the install path cannot be found, set `LX_APP`, `--lx-exe`, or `"lxExe"` in `lx_remote_state.json`. To skip auto-launch: `--no-launch`. The CLI REPL / `--keys` modes do not auto-start LX Music.
 
 | OS | How to start |
 | --- | --- |
@@ -85,8 +98,8 @@ The server listens on `0.0.0.0:23333`. The console prints **local** and **phone*
 
 The page only talks to 23333. The computer running this script proxies to the LX Open API, so the phone does not need to reach 23330.
 
-- **LX Music and this script on the same computer** (macOS / Linux `lx启动.sh` default): proxy `127.0.0.1:23330`. You do not need “Allow access from LAN”. If the local API only works on loopback, the script switches to `127.0.0.1` automatically.
-- **LX Music on another computer**, or Windows `lx启动.bat` still defaulting to `192.168.31.169:23330`: set `LX_API_HOST` / `--host` to that machine’s IP and enable **Allow access from LAN**. Auto-launch does **not** run when the target is not local.
+- **LX Music and this script on the same computer** (`--web` / `lx启动.bat` / `lx启动.sh` when no host is set): proxy `127.0.0.1:23330`. You do not need “Allow access from LAN”. If the local API only works on loopback, the script switches to `127.0.0.1` automatically.
+- **LX Music on another computer**: set `LX_API_HOST` / `--host` to that machine’s IP and enable **Allow access from LAN**. Auto-launch does **not** run when the target is not local.
 
 ```bash
 # LX Music on this machine
@@ -178,7 +191,7 @@ Environment variables (CLI flags win):
 
 | Variable | Meaning |
 | --- | --- |
-| `LX_API_HOST` | Open API host. Python default `192.168.31.169`; `lx启动.sh` default `127.0.0.1` |
+| `LX_API_HOST` | Open API host. CLI default `192.168.31.169`; `--web` / `lx启动.bat` / `lx启动.sh` default `127.0.0.1` when unset |
 | `LX_API_PORT` | Port, default `23330` |
 | `LX_API_URL` | Full base URL; overrides host/port when set |
 | `LX_API_TOKEN` | Optional. Official API does not need it |
@@ -223,7 +236,7 @@ In the REPL, `next` / `play-next` both hit `/skip-next`. There are no official p
 | WeChat scan fails | Scan `http://PC-LAN-IP:23333`; try `remote-qr.png`; check firewall 23333 |
 | Page opens but cannot reach LX Music | LX Music is off, wrong port, or the script is not pointing at that machine (use `127.0.0.1` locally; enable “Allow access from LAN” across devices) |
 | Desktop app not found | Install LX Music and retry, or set `LX_APP` / `--lx-exe` to `lx-music-desktop.exe` |
-| Process running but API unreachable | LX Music **Settings → Open API → enable**, keep port `23330` |
+| Process running but API unreachable | Cannot hot-enable while running: tick **Settings → Open API → enable**, or quit LX Music and let `--web` / `lx启动.bat` write the config before launch |
 | Connection refused / timeout | LX Music off, LAN access not allowed, wrong IP/port, or firewall blocks 23330 |
 | Only `127.0.0.1` works, LAN IP fails | “Allow access from LAN” is off (otherwise it listens on 127.0.0.1 only) |
 | HTTP 401 Forbidden | Wrong path (e.g. `/play-next`). Official API has no key; only a custom gateway checks a token |
