@@ -2,6 +2,14 @@
 
 轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控。播放控制用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面和代理都在 `lx_control.py` 里。
 
+<p align="center">
+  <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="深色主题：暂停与音量">
+  <img src="docs/screenshots/02-light-lyrics.jpg" width="180" alt="浅色主题：全文歌词">
+  <img src="docs/screenshots/03-dark-lyrics.png" width="180" alt="深色主题：全文歌词">
+  <img src="docs/screenshots/04-dark-playing.png" width="180" alt="深色主题：播放中">
+</p>
+<p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。</sub></p>
+
 官方文档：<https://lyswhut.github.io/lx-music-doc/desktop/open-api>（**v2.7.0+**；不保证更早的桌面端。）
 
 ## 洛雪里怎么开 API
