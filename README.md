@@ -1,5 +1,24 @@
 # 洛雪音乐 Open API 控制端
 
+**语言 / Language:** 中文 | [English](README.en.md)
+
+## 🚀 推荐使用 [ofox.ai](https://ofox.io/x/aiv123)
+
+> **一句话**：一个账号直达 GPT-5.5 / Claude 4.8 Opus / Gemini 3.5 Flash 等 **100+** 顶尖模型，首充额外赠 **$3** 额度。
+
+[👉 注册领取](https://ofox.io/x/aiv123) · 全球专线 · 企业级 SLA · 不留存对话
+
+| ⚡️ 极速稳定 | 🧠 模型全 | 🛡️ 隐私安全 |
+|:---:|:---:|:---:|
+| 全球专线，企业级 SLA | 100+ 模型一号直达 | 不留存任何对话 |
+
+## ☕ 请我喝可乐
+
+开源不易，欢迎赞助支持：  
+👉 [爱发电](https://ifdian.net/a/shellsec)
+
+---
+
 轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控。播放控制用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面和代理都在 `lx_control.py` 里。
 
 <p align="center">
@@ -8,7 +27,10 @@
   <img src="docs/screenshots/03-dark-lyrics.png" width="180" alt="深色主题：全文歌词">
   <img src="docs/screenshots/04-dark-playing.png" width="180" alt="深色主题：播放中">
 </p>
-<p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。</sub></p>
+<p align="center">
+  <img src="docs/screenshots/05-desktop-qr.jpg" width="480" alt="控制台二维码与洛雪桌面端">
+</p>
+<p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。电脑控制台会打印局域网地址和微信扫码二维码。</sub></p>
 
 官方文档：<https://lyswhut.github.io/lx-music-doc/desktop/open-api>（**v2.7.0+**；不保证更早的桌面端。）
 
