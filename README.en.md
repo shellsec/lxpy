@@ -29,6 +29,36 @@ A small Python tool that talks to the LX Music desktop Open API: skip tracks, pl
 </p>
 <p align="center"><sub>Phone web remote: dark / light / high-contrast, with progress, lyrics, volume, and skip.</sub></p>
 
+## Download LX Music Desktop
+
+This repo **no longer ships** a desktop zip/7z. Get the official Release; you can one-click fetch it with `gh-release-fetch`, or use a gh-proxy accelerated URL.
+
+- Official releases: <https://github.com/lyswhut/lx-music-desktop/releases>
+- Accelerated example (Windows x64 green 7z): <https://gh-proxy.com/github.com/lyswhut/lx-music-desktop/releases/download/v2.12.5/lx-music-desktop-v2.12.5-win_x64-green.7z>
+- If you already have a **2.12.2** archive that runs fine, keep using it.
+
+## Online music sources
+
+Load sources in **LX Music Desktop** (Settings → custom source / online update). This repo’s remote page only controls the current track — **it has no search**.
+
+Bundled online-update source (tested; load it via online update):
+
+<https://gh-proxy.com/https://raw.githubusercontent.com/shellsec/lx-music-source/refs/heads/master/lx-music-source.js>
+
+Optional online-update URLs:
+
+| Name | URL |
+| --- | --- |
+| Flower | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/flower/latest.js> |
+| SixYin | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js> |
+| Huibq | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/huibq/latest.js> |
+| LX | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/lx/latest.js> |
+| ikun | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/ikun/latest.js> |
+| Grass | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/grass/latest.js> |
+| JuheApi | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/juhe/latest.js> |
+| QDY | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/qdy/latest.js> |
+| xinghai | <https://zrcdy.dpdns.org/lx/xinghai-music-sourcev2.3.13.js> |
+
 ## Use cases
 
 ### Scan the QR code in WeChat to control LX Music on the PC

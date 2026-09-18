@@ -29,6 +29,36 @@
 </p>
 <p align="center"><sub>手机网页遥控：深色 / 浅色 / 高对比，支持进度、歌词、音量与切歌。</sub></p>
 
+## 洛雪桌面端下载
+
+本仓库**不再携带**桌面端解压包。请从官方 Release 下载；可用 `gh-release-fetch` 一键拉取官方 release，或直接用 gh-proxy 加速链接。
+
+- 官方发布页：<https://github.com/lyswhut/lx-music-desktop/releases>
+- 加速示例（Windows x64 绿色版）：<https://gh-proxy.com/github.com/lyswhut/lx-music-desktop/releases/download/v2.12.5/lx-music-desktop-v2.12.5-win_x64-green.7z>
+- 手头已有 **2.12.2** 压缩包且能正常运行的，可继续使用。
+
+## 在线音源
+
+音源在**洛雪桌面端**里加载（设置 → 自定义源 / 在线更新）。本仓库遥控页只控制当前曲，**没有搜歌**。
+
+已打包的在线更新源（已测试，加载在线更新即可）：
+
+<https://gh-proxy.com/https://raw.githubusercontent.com/shellsec/lx-music-source/refs/heads/master/lx-music-source.js>
+
+也可选加载以下在线更新 URL：
+
+| 名称 | 地址 |
+| --- | --- |
+| Flower（野花） | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/flower/latest.js> |
+| SixYin（六音） | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js> |
+| Huibq | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/huibq/latest.js> |
+| LX | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/lx/latest.js> |
+| ikun | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/ikun/latest.js> |
+| Grass（野草） | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/grass/latest.js> |
+| JuheApi | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/juhe/latest.js> |
+| QDY | <https://gh-proxy.com/raw.githubusercontent.com/pdone/lx-music-source/main/qdy/latest.js> |
+| xinghai | <https://zrcdy.dpdns.org/lx/xinghai-music-sourcev2.3.13.js> |
+
 ## 使用场景
 
 ### 微信扫码，直接控制电脑上的洛雪
