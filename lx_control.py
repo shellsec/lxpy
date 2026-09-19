@@ -7,6 +7,8 @@ from __future__ import print_function
 import argparse
 import json
 import os
+import queue
+import secrets
 import socket
 import subprocess
 import sys
@@ -23,6 +25,8 @@ DEFAULT_PORT = 23330
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_WEB_PORT = 23333
 DEFAULT_WEB_BIND = "0.0.0.0"
+DEFAULT_MCP_HTTP_PORT = 23334
+DEFAULT_MCP_HTTP_BIND = "0.0.0.0"
 PAGE_VER = "0917j"
 DEFAULT_LAUNCH_WAIT = 40.0
 _WIN_CREATE_NO_WINDOW = 0x08000000
@@ -449,7 +453,8 @@ def print_help():
         "单次调用：python lx_control.py volume\n"
         "          python lx_control.py volume 50\n"
         "          python lx_control.py seek 30\n"
-        "MCP：     python lx_control.py --mcp"
+        "MCP：     python lx_control.py --mcp\n"
+        "局域网MCP： python lx_control.py --mcp-http"
     )
 
 
@@ -2701,6 +2706,399 @@ def serve_mcp(base_url, token, timeout):
     return 0
 
 
+def _mcp_dispatch(payload, base_url, token, timeout):
+    items = payload if isinstance(payload, list) else [payload]
+    replies = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        reply = handle_mcp_request(item, base_url, token, timeout)
+        if reply is not None:
+            replies.append(reply)
+    return replies
+
+
+def _mcp_token_match(got, expected):
+    if not got or not expected:
+        return False
+    got = got if isinstance(got, str) else str(got)
+    expected = expected if isinstance(expected, str) else str(expected)
+    if len(got) != len(expected):
+        return False
+    try:
+        return secrets.compare_digest(got, expected)
+    except Exception:
+        return got == expected
+
+
+def _mcp_http_authorized(handler, expected):
+    if not expected:
+        return True
+    auth = handler.headers.get("Authorization") or handler.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer ") and _mcp_token_match(auth[7:].strip(), expected):
+        return True
+    extra = (
+        handler.headers.get("X-MCP-Token")
+        or handler.headers.get("X-Api-Key")
+        or ""
+    )
+    if extra and _mcp_token_match(extra.strip(), expected):
+        return True
+    parsed = urllib.parse.urlparse(handler.path)
+    qs = urllib.parse.parse_qs(parsed.query)
+    qtok = ((qs.get("token") or qs.get("access_token") or [""])[0] or "").strip()
+    return bool(qtok) and _mcp_token_match(qtok, expected)
+
+
+def _mcp_http_session_id(handler, qs=None):
+    header = (
+        handler.headers.get("Mcp-Session-Id")
+        or handler.headers.get("mcp-session-id")
+        or ""
+    ).strip()
+    if header:
+        return header
+    qs = qs if qs is not None else urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
+    return ((qs.get("sessionId") or qs.get("session_id") or [""])[0] or "").strip()
+
+
+def _mcp_http_create_session(server):
+    sid = secrets.token_hex(16)
+    q = queue.Queue()
+    with server.lx_mcp_lock:
+        server.lx_mcp_sessions[sid] = q
+    return sid, q
+
+
+def _mcp_http_get_session(server, sid):
+    if not sid:
+        return None
+    with server.lx_mcp_lock:
+        return server.lx_mcp_sessions.get(sid)
+
+
+def _mcp_http_drop_session(server, sid):
+    if not sid:
+        return
+    with server.lx_mcp_lock:
+        server.lx_mcp_sessions.pop(sid, None)
+
+
+def _mcp_http_read_json(handler):
+    length = int(handler.headers.get("Content-Length") or 0)
+    raw = handler.rfile.read(length) if length > 0 else b""
+    if not raw:
+        return None
+    return json.loads(raw.decode("utf-8"))
+
+
+def _print_mcp_http_banner(bind, port, mcp_token, base_url):
+    def say(msg):
+        print(msg)
+        sys.stdout.flush()
+
+    say("lxpy MCP 已启动（HTTP/SSE），代理 {}".format(base_url))
+    say("  本机：    http://127.0.0.1:{}/sse".format(port))
+    lan_shown = []
+    if bind not in ("127.0.0.1", "localhost", "::1"):
+        lan_shown = lan_ips()
+        if lan_shown:
+            for ip in lan_shown:
+                say("  局域网：  http://{}:{}/sse".format(ip, port))
+            say("  另一台电脑 Cursor mcp.json 粘贴：")
+            say('    "url": "http://{}:{}/sse"'.format(lan_shown[0], port))
+        else:
+            say("  局域网：  http://<这台电脑的局域网IP>:{}/sse".format(port))
+    say("  Streamable HTTP 也可用：http://<主机>:{}/mcp".format(port))
+    if mcp_token:
+        say("  已启用口令（Authorization: Bearer … 或 URL ?token=）。")
+    else:
+        say("  未设置口令（--mcp-token / LX_MCP_TOKEN）：仅信任同一局域网，与开放 API 相同。")
+    say("  同一 Wi-Fi；防火墙放行 TCP {}。不要填 127.0.0.1（那是本机）。Ctrl+C 停止。".format(port))
+    say("")
+
+
+class McpHttpHandler(BaseHTTPRequestHandler):
+    server_version = "lxpy-MCP/1.0"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
+        sys.stderr.flush()
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-MCP-Token, X-Api-Key",
+        )
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
+
+    def _path_qs(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path.endswith("/") and path != "/":
+            path = path.rstrip("/")
+        return path, urllib.parse.parse_qs(parsed.query)
+
+    def _send_bytes(self, code, ctype, body, extra_headers=None):
+        body = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self._cors()
+        if extra_headers:
+            for key, val in extra_headers:
+                if val:
+                    self.send_header(key, val)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_json(self, code, payload, extra_headers=None):
+        self._send_bytes(
+            code,
+            "application/json; charset=utf-8",
+            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            extra_headers,
+        )
+
+    def _deny_token(self):
+        self._send_json(401, {"error": "unauthorized", "message": "需要 --mcp-token / LX_MCP_TOKEN"})
+
+    def _send_empty(self, code, extra_headers=None):
+        self.send_response(code)
+        self.send_header("Content-Length", "0")
+        self._cors()
+        if extra_headers:
+            for key, val in extra_headers:
+                if val:
+                    self.send_header(key, val)
+        self.end_headers()
+
+    def do_OPTIONS(self):
+        self._send_empty(204)
+
+    def do_DELETE(self):
+        if not _mcp_http_authorized(self, self.server.lx_mcp_token):
+            self._deny_token()
+            return
+        path, qs = self._path_qs()
+        if path not in ("/mcp", "/sse"):
+            self._send_bytes(404, "text/plain; charset=utf-8", "Not Found")
+            return
+        sid = _mcp_http_session_id(self, qs)
+        _mcp_http_drop_session(self.server, sid)
+        self._send_empty(204)
+
+    def do_GET(self):
+        path, qs = self._path_qs()
+        if path in ("/", "/index.html"):
+            self._send_bytes(200, "text/plain; charset=utf-8", self._info_text())
+            return
+        if path == "/favicon.ico":
+            self._send_empty(204)
+            return
+        if not _mcp_http_authorized(self, self.server.lx_mcp_token):
+            self._deny_token()
+            return
+        if path in ("/sse", "/mcp"):
+            self._serve_sse(path, qs)
+            return
+        self._send_bytes(404, "text/plain; charset=utf-8", "Not Found")
+
+    def do_POST(self):
+        path, qs = self._path_qs()
+        if not _mcp_http_authorized(self, self.server.lx_mcp_token):
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
+            except Exception:
+                pass
+            self._deny_token()
+            return
+        if path == "/messages":
+            self._handle_sse_message(qs)
+            return
+        if path in ("/mcp", "/sse"):
+            self._handle_streamable(qs)
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length:
+                self.rfile.read(length)
+        except Exception:
+            pass
+        self._send_bytes(404, "text/plain; charset=utf-8", "Not Found")
+
+    def _info_text(self):
+        token_on = "required" if self.server.lx_mcp_token else "off (LAN-trust, same as Open API)"
+        return (
+            "lxpy MCP HTTP/SSE\n"
+            "SSE:          GET  /sse\n"
+            "Messages:     POST /messages?sessionId=...\n"
+            "Streamable:   POST /mcp\n"
+            "LX Open API:  {}\n"
+            "Token:        {}\n"
+            "Another PC Cursor mcp.json:\n"
+            '  "url": "http://<这台电脑局域网IP>:{}/sse"\n'
+        ).format(self.server.lx_base, token_on, self.server.server_address[1])
+
+    def _serve_sse(self, path, qs):
+        sid = _mcp_http_session_id(self, qs)
+        existing = _mcp_http_get_session(self.server, sid) if sid else None
+        if existing is not None:
+            q = existing
+        else:
+            sid, q = _mcp_http_create_session(self.server)
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Mcp-Session-Id", sid)
+        self._cors()
+        self.end_headers()
+
+        # 经典 MCP SSE：先发 endpoint，客户端再 POST JSON-RPC 到 /messages
+        if path == "/sse":
+            endpoint = "/messages?sessionId={}".format(sid)
+            host = (self.headers.get("Host") or "").strip()
+            if host:
+                endpoint = "http://{}/messages?sessionId={}".format(host, sid)
+            try:
+                self.wfile.write("event: endpoint\ndata: {}\n\n".format(endpoint).encode("utf-8"))
+                self.wfile.flush()
+            except Exception:
+                _mcp_http_drop_session(self.server, sid)
+                return
+
+        try:
+            while not getattr(self.server, "lx_mcp_stop", False):
+                try:
+                    item = q.get(timeout=15)
+                except queue.Empty:
+                    try:
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+                    except Exception:
+                        break
+                    continue
+                if item is None:
+                    break
+                event, data = item
+                try:
+                    self.wfile.write("event: {}\ndata: {}\n\n".format(event, data).encode("utf-8"))
+                    self.wfile.flush()
+                except Exception:
+                    break
+        finally:
+            # Streamable HTTP 的 GET /mcp 只挂监听，会话留给后续 POST
+            if path == "/sse":
+                _mcp_http_drop_session(self.server, sid)
+
+    def _handle_sse_message(self, qs):
+        sid = _mcp_http_session_id(self, qs)
+        q = _mcp_http_get_session(self.server, sid)
+        if q is None:
+            self._send_json(404, {"error": "unknown session", "message": "先 GET /sse"})
+            return
+        try:
+            payload = _mcp_http_read_json(self)
+        except ValueError as exc:
+            self._send_json(400, {"error": "invalid json", "message": str(exc)})
+            return
+        if payload is None:
+            self._send_empty(202)
+            return
+        replies = _mcp_dispatch(
+            payload,
+            self.server.lx_base,
+            self.server.lx_token,
+            self.server.lx_timeout,
+        )
+        for reply in replies:
+            q.put(("message", json.dumps(reply, ensure_ascii=False, separators=(",", ":"))))
+        self._send_empty(202, [("Mcp-Session-Id", sid)])
+
+    def _handle_streamable(self, qs):
+        try:
+            payload = _mcp_http_read_json(self)
+        except ValueError as exc:
+            self._send_json(400, {"error": "invalid json", "message": str(exc)})
+            return
+        if payload is None:
+            self._send_empty(202)
+            return
+        replies = _mcp_dispatch(
+            payload,
+            self.server.lx_base,
+            self.server.lx_token,
+            self.server.lx_timeout,
+        )
+        sid = _mcp_http_session_id(self, qs)
+        extra = []
+        if isinstance(payload, dict) and payload.get("method") == "initialize":
+            if not sid:
+                sid, _unused = _mcp_http_create_session(self.server)
+            extra.append(("Mcp-Session-Id", sid))
+        elif sid:
+            extra.append(("Mcp-Session-Id", sid))
+        if not replies:
+            self._send_empty(202, extra or None)
+            return
+        out = replies[0] if len(replies) == 1 else replies
+        accept = (self.headers.get("Accept") or "").lower()
+        if "text/event-stream" in accept and "application/json" not in accept:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store")
+            if sid:
+                self.send_header("Mcp-Session-Id", sid)
+            self._cors()
+            self.end_headers()
+            items = out if isinstance(out, list) else [out]
+            for reply in items:
+                data = json.dumps(reply, ensure_ascii=False, separators=(",", ":"))
+                self.wfile.write("event: message\ndata: {}\n\n".format(data).encode("utf-8"))
+            self.wfile.flush()
+            return
+        self._send_json(200, out, extra or None)
+
+
+def serve_mcp_http(base_url, token, timeout, bind, port, mcp_token):
+    """局域网 MCP：SSE（/sse + /messages）与 Streamable HTTP（/mcp）。"""
+    server = ThreadingHTTPServer((bind, port), McpHttpHandler)
+    server.lx_base = base_url
+    server.lx_token = token
+    server.lx_timeout = timeout
+    server.lx_mcp_token = mcp_token or None
+    server.lx_mcp_sessions = {}
+    server.lx_mcp_lock = threading.Lock()
+    server.lx_mcp_stop = False
+    _print_mcp_http_banner(bind, port, server.lx_mcp_token, base_url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n已停止")
+    finally:
+        server.lx_mcp_stop = True
+        with server.lx_mcp_lock:
+            for q in list(server.lx_mcp_sessions.values()):
+                try:
+                    q.put_nowait(None)
+                except Exception:
+                    pass
+        server.server_close()
+    return 0
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="洛雪音乐 Open API 控制端")
     parser.add_argument(
@@ -2712,7 +3110,7 @@ def parse_args(argv):
     parser.add_argument(
         "--host",
         default=None,
-        help="洛雪 Open API 主机。命令行默认 192.168.31.169；--web 未指定时默认 127.0.0.1，或 LX_API_HOST",
+        help="洛雪 Open API 主机。命令行默认 192.168.31.169；--web / --mcp / --mcp-http 未指定时默认 127.0.0.1，或 LX_API_HOST",
     )
     parser.add_argument("--port", type=int, default=None, help="默认 23330，或环境变量 LX_API_PORT")
     parser.add_argument("--url", default=None, help="完整基址，如 http://192.168.31.169:23330，或 LX_API_URL")
@@ -2726,7 +3124,28 @@ def parse_args(argv):
     parser.add_argument(
         "--mcp",
         action="store_true",
-        help="以 stdio MCP 服务运行，供 Cursor / Claude 等调用（不替代 --web）",
+        help="以 stdio MCP 服务运行，供本机 Cursor / Claude 等调用（不替代 --web）",
+    )
+    parser.add_argument(
+        "--mcp-http",
+        action="store_true",
+        help="启动局域网 MCP（SSE / Streamable HTTP），供其它电脑的 Cursor 连接",
+    )
+    parser.add_argument(
+        "--mcp-port",
+        type=int,
+        default=None,
+        help="MCP HTTP 端口，默认 23334，或 LX_MCP_PORT（不要用 23330 / 23333）",
+    )
+    parser.add_argument(
+        "--mcp-bind",
+        default=None,
+        help="MCP HTTP 监听地址，默认 0.0.0.0，或 LX_MCP_BIND",
+    )
+    parser.add_argument(
+        "--mcp-token",
+        default=None,
+        help="可选。局域网 MCP 口令，也可用 LX_MCP_TOKEN；未设则仅信任同一局域网",
     )
     parser.add_argument("--web", action="store_true", help="启动手机网页遥控（本机代理洛雪 API）")
     parser.add_argument("--web-port", type=int, default=None, help="网页端口，默认 23333，或 LX_WEB_PORT")
@@ -2753,12 +3172,19 @@ def parse_args(argv):
 def main(argv=None):
     args = parse_args(argv)
     # 网页遥控 / MCP 未指定主机时连本机，避免默认局域网 IP 换网段后连错
-    if (args.web or args.mcp) and args.host is None and args.url is None:
+    if (args.web or args.mcp or args.mcp_http) and args.host is None and args.url is None:
         if not env_or("LX_API_HOST", "") and not env_or("LX_API_URL", ""):
             args.host = "127.0.0.1"
     base_url = build_base_url(args)
     token = args.token if args.token is not None else env_or("LX_API_TOKEN", "")
     token = token or None
+
+    if args.mcp_http:
+        bind = args.mcp_bind or env_or("LX_MCP_BIND", DEFAULT_MCP_HTTP_BIND)
+        port = args.mcp_port if args.mcp_port is not None else int(env_or("LX_MCP_PORT", DEFAULT_MCP_HTTP_PORT))
+        mcp_token = args.mcp_token if args.mcp_token is not None else env_or("LX_MCP_TOKEN", "")
+        mcp_token = mcp_token or None
+        return serve_mcp_http(base_url, token, args.timeout, bind, port, mcp_token)
 
     if args.mcp:
         return serve_mcp(base_url, token, args.timeout)

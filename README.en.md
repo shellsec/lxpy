@@ -19,7 +19,7 @@ Open source takes effort — sponsorship is welcome:
 
 ---
 
-A small Python tool that talks to the LX Music desktop Open API: skip tracks, play/pause, show the current song, volume/mute/seek, and collect. The computer can host a web page for phone remote control, or run `--mcp` so Cursor / Claude can drive LX Music as an MCP server. Playback control (including MCP) uses the **Python 3 standard library**; WeChat QR codes need `segno` (see `requirements.txt`; `lx启动.bat` / `lx启动.sh` will try to install it). The page, proxy, and MCP server all live in `lx_control.py`.
+A small Python tool that talks to the LX Music desktop Open API: skip tracks, play/pause, show the current song, volume/mute/seek, and collect. The computer can host a web page for phone remote control, or run `--mcp` (local stdio) / `--mcp-http` (LAN HTTP/SSE) so Cursor / Claude can drive LX Music as an MCP server. Playback control (including MCP) uses the **Python 3 standard library**; WeChat QR codes need `segno` (see `requirements.txt`; `lx启动.bat` / `lx启动.sh` will try to install it). The page, proxy, and MCP server all live in `lx_control.py`. `--mcp-http` does **not** need segno.
 
 <p align="center">
   <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="Dark theme: paused with volume">
@@ -154,7 +154,14 @@ CLI REPL: `python3 lx_control.py` (do not add `--web`). `--keys` single-key hotk
 
 ## Cursor / Claude MCP
 
-MCP does **not** replace the `--web` phone remote: phones still use `python lx_control.py --web` or `lx启动.bat`. Cursor / Claude talk to the same official Open API over stdio MCP. You can run both at once.
+MCP does **not** replace the `--web` phone remote: phones still use `python lx_control.py --web` or `lx启动.bat`. Cursor / Claude talk to the same official Open API over MCP. You can run both at once.
+
+- **Local Cursor**: `--mcp` (stdio; only the machine that launches it)
+- **Cursor on another PC**: `--mcp-http` (SSE / Streamable HTTP over the LAN)
+
+When no host is set it defaults to local LX Music at `127.0.0.1:23330` (same as `--web`). Override with `--host` / `--port` / `--url` / `--token`, or `LX_API_HOST`, `LX_API_PORT`, `LX_API_URL`, `LX_API_TOKEN`. It does not auto-launch LX Music; enable Open API in the desktop app first.
+
+### Local stdio (`--mcp`)
 
 No extra packages. Start:
 
@@ -162,9 +169,7 @@ No extra packages. Start:
 python lx_control.py --mcp
 ```
 
-When no host is set it defaults to `127.0.0.1:23330` (same as `--web`). Override with `--host` / `--port` / `--url` / `--token`, or `LX_API_HOST`, `LX_API_PORT`, `LX_API_URL`, `LX_API_TOKEN`. It does not auto-launch LX Music; enable Open API in the desktop app first.
-
-In Cursor: Settings → MCP, or project `.cursor/mcp.json` / user `~/.cursor/mcp.json`:
+On **this** PC in Cursor: Settings → MCP, or project `.cursor/mcp.json` / user `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -183,6 +188,53 @@ In Cursor: Settings → MCP, or project `.cursor/mcp.json` / user `~/.cursor/mcp
 ```
 
 Change `cwd` to your clone. On Windows, if `python` is missing, set `command` to `py` and `args` to `["-3", "lx_control.py", "--mcp"]`. On macOS / Linux use `python3`. Add `"LX_API_TOKEN"` only if you have a reverse proxy in front.
+
+### LAN remote MCP (`--mcp-http`)
+
+Let Cursor (or another MCP client) on **another machine** connect over the network to **the PC running LX Music** and control playback. This is your own LAN remote, not a public backdoor.
+
+Start it on the **LX Music PC** (listens on `0.0.0.0:23334` by default; does not use web 23333 or Open API 23330):
+
+```bash
+python lx_control.py --mcp-http
+```
+
+The console prints local and LAN URLs (like `--web`; **no** segno / QR code). Paste the LAN URL into Cursor on the other PC. Port: `--mcp-port 23334` or `LX_MCP_PORT`. Bind: `--mcp-bind 0.0.0.0` or `LX_MCP_BIND`.
+
+The **other PC** must be on the **same Wi-Fi / LAN**. In that PC’s Cursor: Settings → MCP, or `~/.cursor/mcp.json` (use the printed LAN address, not `127.0.0.1`):
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "url": "http://192.168.31.100:23334/sse"
+    }
+  }
+}
+```
+
+Streamable HTTP also works: `"url": "http://192.168.31.100:23334/mcp"`. Allow **TCP 23334** through the firewall (Windows may prompt; macOS “System Settings → Network / Firewall”; Linux depends on the distro). Guest Wi-Fi / client isolation will block the connection.
+
+Optional token: `--mcp-token` or `LX_MCP_TOKEN`. **If unset, same as the Open API: LAN-trust only** — any device that can reach the port can control playback. When set, requests need `Authorization: Bearer <token>` or `?token=<token>`:
+
+```bash
+python lx_control.py --mcp-http --mcp-token your-own-secret
+```
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "url": "http://192.168.31.100:23334/sse",
+      "headers": {
+        "Authorization": "Bearer your-own-secret"
+      }
+    }
+  }
+}
+```
+
+Or put it in the URL: `"url": "http://192.168.31.100:23334/sse?token=your-own-secret"`.
 
 Tools map 1:1 to existing commands (the official Open API has **no** search / playlist / play-mode endpoints):
 
@@ -267,12 +319,15 @@ Environment variables (CLI flags win):
 
 | Variable | Meaning |
 | --- | --- |
-| `LX_API_HOST` | Open API host. CLI default `192.168.31.169`; `--web` / `--mcp` / `lx启动.bat` / `lx启动.sh` default `127.0.0.1` when unset |
+| `LX_API_HOST` | Open API host. CLI default `192.168.31.169`; `--web` / `--mcp` / `--mcp-http` / `lx启动.bat` / `lx启动.sh` default `127.0.0.1` when unset |
 | `LX_API_PORT` | Port, default `23330` |
 | `LX_API_URL` | Full base URL; overrides host/port when set |
 | `LX_API_TOKEN` | Optional. Official API does not need it |
 | `LX_WEB_PORT` | Web port, default `23333` |
 | `LX_WEB_BIND` | Web bind address, default `0.0.0.0` |
+| `LX_MCP_PORT` | LAN MCP port, default `23334` |
+| `LX_MCP_BIND` | LAN MCP bind address, default `0.0.0.0` |
+| `LX_MCP_TOKEN` | Optional. LAN MCP token; if unset, LAN-trust only |
 | `LX_APP` / `LX_EXE` | Path to the desktop exe / `.app` when install dir cannot be found |
 | `LX_APP_WAIT` | Seconds to wait for Open API after auto-launch, default 40 |
 
@@ -308,6 +363,8 @@ In the REPL, `next` / `play-next` both hit `/skip-next`. There are no official p
 
 | Symptom | Cause / fix |
 | --- | --- |
+| Other PC Cursor cannot reach MCP | `--mcp-http` is not running, not the same Wi-Fi, firewall blocks **TCP 23334**, or `url` uses `127.0.0.1` (use the LX Music PC’s LAN IP) |
+| MCP returns 401 | `--mcp-token` / `LX_MCP_TOKEN` is set but the request has no `Authorization: Bearer` or `?token=` |
 | Phone cannot open the page | Computer is not running `--web`, not the same Wi-Fi, or firewall blocks **23333** |
 | WeChat scan fails | Scan `http://PC-LAN-IP:23333`; try `remote-qr.png`; check firewall 23333 |
 | Page opens but cannot reach LX Music | LX Music is off, wrong port, or the script is not pointing at that machine (use `127.0.0.1` locally; enable “Allow access from LAN” across devices) |

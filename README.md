@@ -19,7 +19,7 @@
 
 ---
 
-轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控，也可用 `--mcp` 给 Cursor / Claude 当 MCP 工具。播放控制（含 MCP）只用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面、代理和 MCP 都在 `lx_control.py` 里。
+轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控，也可用 `--mcp`（本机 stdio）或 `--mcp-http`（局域网 HTTP/SSE）给 Cursor / Claude 当 MCP 工具。播放控制（含 MCP）只用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面、代理和 MCP 都在 `lx_control.py` 里。`--mcp-http` **不需要** segno。
 
 <p align="center">
   <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="深色主题：暂停与音量">
@@ -154,7 +154,14 @@ LX_API_HOST=192.168.31.169 python3 lx_control.py --web
 
 ## Cursor / Claude MCP
 
-MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.py --web` 或 `lx启动.bat`；Cursor / Claude 用 stdio MCP 调同一套官方 Open API。两边可以同时开。
+MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.py --web` 或 `lx启动.bat`；Cursor / Claude 用 MCP 调同一套官方 Open API。两边可以同时开。
+
+- **本机 Cursor**：`--mcp`（stdio，只给启动它的那台电脑用）
+- **其它电脑的 Cursor**：`--mcp-http`（SSE / Streamable HTTP，局域网连接）
+
+未指定主机时默认连本机洛雪 `127.0.0.1:23330`（与 `--web` 相同）。可用 `--host` / `--port` / `--url` / `--token`，或环境变量 `LX_API_HOST`、`LX_API_PORT`、`LX_API_URL`、`LX_API_TOKEN`。不会自动启动洛雪桌面端；请先在洛雪里启用开放 API。
+
+### 本机 stdio（`--mcp`）
 
 不额外装包。启动：
 
@@ -162,9 +169,7 @@ MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.p
 python lx_control.py --mcp
 ```
 
-未指定主机时默认 `127.0.0.1:23330`（与 `--web` 相同）。可用 `--host` / `--port` / `--url` / `--token`，或环境变量 `LX_API_HOST`、`LX_API_PORT`、`LX_API_URL`、`LX_API_TOKEN`。不会自动启动洛雪桌面端；请先在洛雪里启用开放 API。
-
-在 Cursor 里：Settings → MCP，或项目 `.cursor/mcp.json` / 用户 `~/.cursor/mcp.json`：
+在 **这台电脑** 的 Cursor：Settings → MCP，或项目 `.cursor/mcp.json` / 用户 `~/.cursor/mcp.json`：
 
 ```json
 {
@@ -183,6 +188,53 @@ python lx_control.py --mcp
 ```
 
 把 `cwd` 改成你的仓库路径。Windows 若 `python` 不可用，把 `command` 改成 `py`，`args` 改成 `["-3", "lx_control.py", "--mcp"]`；macOS / Linux 可用 `python3`。前面有反代时再加 `"LX_API_TOKEN"`。
+
+### 局域网远程 MCP（`--mcp-http`）
+
+让**另一台电脑**上的 Cursor（或其它 MCP 客户端）通过网络连到**跑洛雪的这台电脑**，远程切歌/暂停/音量。这是你自己的局域网遥控，不是给公网用的后门。
+
+在**洛雪所在电脑**启动（默认监听 `0.0.0.0:23334`，不占用网页 23333 和 Open API 23330）：
+
+```bash
+python lx_control.py --mcp-http
+```
+
+控制台会打印本机和局域网 URL（类似 `--web`，**不需要** segno / 二维码）。把局域网地址粘到另一台电脑的 Cursor。端口可改：`--mcp-port 23334` 或 `LX_MCP_PORT`。监听地址：`--mcp-bind 0.0.0.0` 或 `LX_MCP_BIND`。
+
+**另一台电脑**与洛雪电脑须在**同一 Wi-Fi / 局域网**。在那台电脑的 Cursor：Settings → MCP，或 `~/.cursor/mcp.json`（把 IP 换成控制台打印的局域网地址，不要用 `127.0.0.1`）：
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "url": "http://192.168.31.100:23334/sse"
+    }
+  }
+}
+```
+
+也可用 Streamable HTTP：`"url": "http://192.168.31.100:23334/mcp"`。Windows 防火墙放行 **TCP 23334**（首次可能弹窗；macOS「系统设置 → 网络 / 防火墙」；Linux 视发行版打开对应端口）。访客 Wi-Fi / 客户端隔离会导致连不上。
+
+可选口令 `--mcp-token` 或环境变量 `LX_MCP_TOKEN`。**未设置时与开放 API 一样：只信任同一局域网**，任何能访问该端口的设备都能调播放控制。设了口令后，请求须带 `Authorization: Bearer <口令>`，或 URL `?token=<口令>`：
+
+```bash
+python lx_control.py --mcp-http --mcp-token 换成你自己的口令
+```
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "url": "http://192.168.31.100:23334/sse",
+      "headers": {
+        "Authorization": "Bearer 换成你自己的口令"
+      }
+    }
+  }
+}
+```
+
+或把口令写进 URL：`"url": "http://192.168.31.100:23334/sse?token=换成你自己的口令"`。
 
 工具与现有命令一一对应（官方 Open API **没有**搜歌/歌单/播放模式）：
 
@@ -267,12 +319,15 @@ python lx_control.py --url http://192.168.31.169:23330 next
 
 | 变量 | 含义 |
 | --- | --- |
-| `LX_API_HOST` | 洛雪 Open API 主机。命令行默认 `192.168.31.169`；`--web` / `--mcp` / `启动.bat` / `启动.sh` 未指定时默认 `127.0.0.1` |
+| `LX_API_HOST` | 洛雪 Open API 主机。命令行默认 `192.168.31.169`；`--web` / `--mcp` / `--mcp-http` / `启动.bat` / `启动.sh` 未指定时默认 `127.0.0.1` |
 | `LX_API_PORT` | 端口，默认 `23330` |
 | `LX_API_URL` | 完整基址，设置后覆盖 host/port |
 | `LX_API_TOKEN` | 可选。官方 API 不需要 |
 | `LX_WEB_PORT` | 网页端口，默认 `23333` |
 | `LX_WEB_BIND` | 网页监听地址，默认 `0.0.0.0` |
+| `LX_MCP_PORT` | 局域网 MCP 端口，默认 `23334` |
+| `LX_MCP_BIND` | 局域网 MCP 监听地址，默认 `0.0.0.0` |
+| `LX_MCP_TOKEN` | 可选。局域网 MCP 口令；未设则仅信任同一局域网 |
 | `LX_APP` / `LX_EXE` | 洛雪桌面端 exe / `.app` 路径，找不到安装目录时用 |
 | `LX_APP_WAIT` | 自动启动后等待开放 API 的秒数，默认 40 |
 
@@ -308,6 +363,8 @@ REPL 里 `next` / `play-next` 都会打到 `/skip-next`。官方没有播放模�
 
 | 现象 | 原因与处理 |
 | --- | --- |
+| 另一台电脑 Cursor 连不上 MCP | 没开 `--mcp-http`、不是同一 Wi-Fi、防火墙拦了 **TCP 23334**、`url` 写成了 `127.0.0.1`（应填洛雪电脑的局域网 IP） |
+| MCP 返回 401 | 设了 `--mcp-token` / `LX_MCP_TOKEN` 但没带 `Authorization: Bearer` 或 `?token=` |
 | 手机打不开网页 | 电脑没开 `--web`、不是同一 Wi-Fi、防火墙拦了 **23333** |
 | 微信扫码进不去 | 扫的应是 `http://电脑局域网IP:23333`；可改扫 `remote-qr.png`；检查防火墙 23333 |
 | 网页能开但显示连不上洛雪 | 洛雪没开、端口不对，或脚本连的不是洛雪那台（本机用 `127.0.0.1`，跨设备要勾「允许来自局域网的访问」） |
