@@ -75,7 +75,7 @@ LX Music is playing on the computer. Phone and PC are on the **same Wi-Fi**. Dou
 
 You can also use the CLI REPL on the same computer; Windows supports `--keys` for single-key control. Full steps are in **Phone web remote** below.
 
-> **Local `--web` / `lx启动.bat` / `lx启动.sh` can turn Open API on automatically, and disable LX auto-download-update.** Official LX Music has no CLI flag for this. When the script auto-launches the desktop app locally (and it is not already running), it writes `openAPI.enable` to `true` first. Windows, macOS, and Linux all support this. If LX Music is already running, restart it or enable Open API by hand. See **Enable the API in LX Music** below.
+> **Local `--web` / `lx启动.bat` / `lx启动.sh` can turn Open API on automatically, disable auto-download, and suppress the startup “new version” popup (not only auto-download).** Official LX Music has no CLI flag for this. When the script auto-launches the desktop app locally (and it is not already running), it writes `openAPI.enable` to `true` first. Windows, macOS, and Linux all support this. If LX Music is already running, fully quit it and start via the script, or enable Open API by hand. See **Enable the API in LX Music** below.
 
 Official docs: <https://lyswhut.github.io/lx-music-doc/desktop/open-api> (**v2.7.0+**; older desktop builds are not guaranteed.)
 
@@ -84,7 +84,7 @@ Official docs: <https://lyswhut.github.io/lx-music-doc/desktop/open-api> (**v2.7
 Official LX Music has **no** CLI flag to enable Open API. With local `--web` / `lx启动.bat` / `lx启动.sh`, if the Open API is not up yet **and** LX Music is **not** already running, the script writes the desktop config before auto-launch:
 
 - Sets `setting["openAPI.enable"]` to `true`
-- Also sets `setting["common.tryAutoUpdate"]` to `false` (auto-download updates only; changelog popup is left alone)
+- Also sets `setting["common.tryAutoUpdate"]` to `false`, and writes official latest into `data.json` `ignoreVersion` (suppresses the startup update popup; changelog toggle is left alone)
 - Config file: portable install uses `install-dir/portable/userData/LxDatas/config_v2.json`; otherwise `%APPDATA%\lx-music-desktop\LxDatas\config_v2.json` (macOS: `~/Library/Application Support/lx-music-desktop/LxDatas/config_v2.json`; Linux: `~/.config/lx-music-desktop/LxDatas/config_v2.json`)
 - Keeps an existing port; defaults to `23330` if missing
 - Does **not** auto-enable **Allow access from LAN** (`bindLan`). Local web remote usually does not need it; tick it yourself for another machine

@@ -1688,9 +1688,18 @@ def _lx_config_v2_path(exe=None):
     return candidates[0] if candidates else ""
 
 
+def _lx_data_json_path(exe=None):
+    """与 config_v2.json 同目录的 data.json（官方 ignoreVersion 在这里）。"""
+    cfg = _lx_config_v2_path(exe)
+    if not cfg:
+        return ""
+    return os.path.join(os.path.dirname(cfg), "data.json")
+
+
 def _write_json_atomic(path, data):
     folder = os.path.dirname(path)
-    tmp = os.path.join(folder, "config_v2.{}.temp".format(int(time.time() * 1000) % 1000000000))
+    name = os.path.basename(path) or "config_v2.json"
+    tmp = os.path.join(folder, "{}.{}.temp".format(name, int(time.time() * 1000) % 1000000000))
     text = json.dumps(data, ensure_ascii=False, indent="\t")
     try:
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -1703,6 +1712,68 @@ def _write_json_atomic(path, data):
         except OSError:
             pass
         raise
+
+
+def _looks_like_lx_version(value):
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if text[:1] in ("v", "V"):
+        text = text[1:]
+    parts = text.split(".")
+    if len(parts) < 2 or len(parts) > 4:
+        return False
+    return all(part.isdigit() for part in parts)
+
+
+def _normalize_lx_version(value):
+    if not _looks_like_lx_version(value):
+        return ""
+    text = value.strip()
+    if text[:1] in ("v", "V"):
+        text = text[1:]
+    return text
+
+
+def _version_from_lx_payload(payload):
+    if not isinstance(payload, dict):
+        return ""
+    raw = payload.get("versionInfo")
+    if isinstance(raw, str):
+        try:
+            inner = json.loads(raw)
+        except ValueError:
+            inner = None
+        if isinstance(inner, dict):
+            ver = _normalize_lx_version(inner.get("version"))
+            if ver:
+                return ver
+    return _normalize_lx_version(payload.get("version"))
+
+
+def _fetch_lx_latest_version(timeout=3.0):
+    """读官方 version.json，不凭空编版本号。失败返回空字符串。"""
+    urls = (
+        "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/master/publish/version.json",
+        "https://registry.npmmirror.com/lx-music-desktop-version-info/latest",
+        "https://cdn.jsdelivr.net/gh/lyswhut/lx-music-desktop/publish/version.json",
+        "http://cdn.stsky.cn/lx-music/desktop/version.json",
+    )
+    for url in urls:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"Accept": "application/json, */*;q=0.8", "User-Agent": "lxpy"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+            payload = json.loads(raw.decode("utf-8", "replace"))
+            ver = _version_from_lx_payload(payload)
+            if ver:
+                return ver
+        except Exception:
+            continue
+    return ""
 
 
 def _merge_lx_config_v2(exe=None, port=None, enable_open_api=False, disable_auto_update=False):
@@ -1737,7 +1808,7 @@ def _merge_lx_config_v2(exe=None, port=None, enable_open_api=False, disable_auto
         if current_port is None or current_port == "":
             setting["openAPI.port"] = want_port
             changed = True
-    # 官方键 common.tryAutoUpdate =「发现新版本时尝试自动下载更新」
+    # 官方键 common.tryAutoUpdate =「发现新版本时尝试自动下载更新」，不管启动检查/弹窗
     if disable_auto_update and setting.get("common.tryAutoUpdate") is not False:
         setting["common.tryAutoUpdate"] = False
         changed = True
@@ -1749,6 +1820,66 @@ def _merge_lx_config_v2(exe=None, port=None, enable_open_api=False, disable_auto
     except Exception:
         return "failed"
     return "enabled"
+
+
+def _merge_lx_data_ignore_version(exe=None, latest=None):
+    """合并官方 data.json 的 ignoreVersion（启动发现该版本时不弹更新窗）。
+
+    文件缺失或损坏时不整文件重写。latest 必须是已校验的官方版本号。
+    返回 already / enabled / missing / failed / skipped。
+    """
+    latest = _normalize_lx_version(latest)
+    if not latest:
+        return "skipped"
+    path = _lx_data_json_path(exe)
+    if not path or not os.path.isfile(path):
+        return "missing"
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return "failed"
+    if not isinstance(data, dict):
+        return "failed"
+    if data.get("ignoreVersion") == latest:
+        return "already"
+    data["ignoreVersion"] = latest
+    try:
+        _write_json_atomic(path, data)
+    except Exception:
+        return "failed"
+    return "enabled"
+
+
+def _apply_lx_quiet_update(exe=None, running=False):
+    """关闭自动下载，并用官方 ignoreVersion 抑制启动更新弹窗。"""
+    upd_cfg = _merge_lx_config_v2(
+        exe, None, enable_open_api=False, disable_auto_update=True
+    )
+    if upd_cfg == "enabled":
+        _say_launch("已关闭洛雪「发现新版本时尝试自动下载更新」。")
+    elif upd_cfg == "failed":
+        _say_launch("未能写入洛雪自动更新设置（配置缺失或损坏时不会整文件覆盖）。")
+
+    latest = _fetch_lx_latest_version()
+    ign_cfg = _merge_lx_data_ignore_version(exe, latest)
+    if ign_cfg == "enabled":
+        _say_launch("已用官方 ignoreVersion 忽略最新版 {}，启动时不再弹出「发现新版本」。".format(latest))
+    elif ign_cfg == "already":
+        _say_launch("洛雪 data.json 已忽略最新版 {}，启动更新弹窗应不再出现。".format(latest))
+    elif ign_cfg == "skipped":
+        _say_launch("未能读取官方最新版本号，未改 ignoreVersion（不会凭空写版本号）。")
+    elif ign_cfg == "missing":
+        _say_launch("未找到洛雪 data.json，无法写入 ignoreVersion 抑制更新弹窗。")
+    elif ign_cfg == "failed":
+        _say_launch("未能写入 ignoreVersion（data.json 缺失或损坏时不会整文件覆盖）。")
+
+    if running:
+        _say_launch(
+            "洛雪仍在运行（最小化到托盘也算）。进程退出时可能把刚写的设置盖回去。"
+            "请彻底退出洛雪后，再用 lx启动.bat / --web 启动。"
+        )
+    return upd_cfg, ign_cfg, latest
 
 
 def ensure_open_api_setting(exe=None, port=None):
@@ -1891,17 +2022,10 @@ def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, la
     """网页遥控：本机 API 不通时尝试启动洛雪桌面端。返回可能改过的 base_url。"""
     host, port, scheme = _base_host_port(base_url)
     exe = find_lx_exe(explicit_exe)
+    already = lx_desktop_running()
     if is_local_api_host(host):
-        upd_cfg = _merge_lx_config_v2(
-            exe or explicit_exe, port, enable_open_api=False, disable_auto_update=True
-        )
-        if upd_cfg == "enabled":
-            _say_launch(
-                "已关闭洛雪「发现新版本时尝试自动下载更新」。"
-                "桌面端若已在运行，可能需重启一次后才会按新设置检查更新。"
-            )
-        elif upd_cfg == "failed":
-            _say_launch("未能写入洛雪自动更新设置（配置缺失或损坏时不会整文件覆盖）。")
+        # 进程停着时写入才会在本次启动生效；仍在运行则写入后提醒彻底退出
+        _apply_lx_quiet_update(exe or explicit_exe, running=already)
 
     if api_is_up(base_url, token, min(timeout, 1.5)):
         return base_url
@@ -1921,7 +2045,6 @@ def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, la
         return base_url
 
     wait_s = DEFAULT_LAUNCH_WAIT if wait_s is None else float(wait_s)
-    already = lx_desktop_running()
     if already:
         _say_launch(
             "洛雪进程已在运行，但开放 API 连不上。请在洛雪里：设置 → 开放 API → 勾选「启用开放 API 服务」（端口 {}）。"
