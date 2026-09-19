@@ -1705,12 +1705,14 @@ def _write_json_atomic(path, data):
         raise
 
 
-def ensure_open_api_setting(exe=None, port=None):
-    """仅合并 openAPI.enable（及缺省端口），不改 bindLan 等其它项。
+def _merge_lx_config_v2(exe=None, port=None, enable_open_api=False, disable_auto_update=False):
+    """仅合并指定项，不改 bindLan / showChangeLog 等其它项。
 
-    必须在洛雪未运行时调用，否则进程内设置会盖回文件。
+    配置文件缺失或损坏时不整文件重写。
     返回 already / enabled / missing / failed。
     """
+    if not enable_open_api and not disable_auto_update:
+        return "already"
     path = _lx_config_v2_path(exe)
     if not path or not os.path.isfile(path):
         return "missing"
@@ -1725,14 +1727,19 @@ def ensure_open_api_setting(exe=None, port=None):
     if not isinstance(setting, dict):
         return "failed"
 
-    want_port = str(DEFAULT_PORT if port is None else port)
     changed = False
-    if setting.get("openAPI.enable") is not True:
-        setting["openAPI.enable"] = True
-        changed = True
-    current_port = setting.get("openAPI.port")
-    if current_port is None or current_port == "":
-        setting["openAPI.port"] = want_port
+    if enable_open_api:
+        want_port = str(DEFAULT_PORT if port is None else port)
+        if setting.get("openAPI.enable") is not True:
+            setting["openAPI.enable"] = True
+            changed = True
+        current_port = setting.get("openAPI.port")
+        if current_port is None or current_port == "":
+            setting["openAPI.port"] = want_port
+            changed = True
+    # 官方键 common.tryAutoUpdate =「发现新版本时尝试自动下载更新」
+    if disable_auto_update and setting.get("common.tryAutoUpdate") is not False:
+        setting["common.tryAutoUpdate"] = False
         changed = True
     if not changed:
         return "already"
@@ -1742,6 +1749,17 @@ def ensure_open_api_setting(exe=None, port=None):
     except Exception:
         return "failed"
     return "enabled"
+
+
+def ensure_open_api_setting(exe=None, port=None):
+    """合并 openAPI.enable（及缺省端口），并关闭自动下载更新。
+
+    开放 API 宜在洛雪未运行时写入，否则进程内设置会盖回文件。
+    返回 already / enabled / missing / failed。
+    """
+    return _merge_lx_config_v2(
+        exe, port, enable_open_api=True, disable_auto_update=True
+    )
 
 
 def _cmd_exists(name):
@@ -1871,10 +1889,22 @@ def launch_lx_exe(exe):
 
 def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, launch=True):
     """网页遥控：本机 API 不通时尝试启动洛雪桌面端。返回可能改过的 base_url。"""
+    host, port, scheme = _base_host_port(base_url)
+    exe = find_lx_exe(explicit_exe)
+    if is_local_api_host(host):
+        upd_cfg = _merge_lx_config_v2(
+            exe or explicit_exe, port, enable_open_api=False, disable_auto_update=True
+        )
+        if upd_cfg == "enabled":
+            _say_launch(
+                "已关闭洛雪「发现新版本时尝试自动下载更新」。"
+                "桌面端若已在运行，可能需重启一次后才会按新设置检查更新。"
+            )
+        elif upd_cfg == "failed":
+            _say_launch("未能写入洛雪自动更新设置（配置缺失或损坏时不会整文件覆盖）。")
+
     if api_is_up(base_url, token, min(timeout, 1.5)):
         return base_url
-
-    host, port, scheme = _base_host_port(base_url)
     loop_url = "{}://127.0.0.1:{}".format(scheme, port)
     if host not in ("127.0.0.1", "localhost") and api_is_up(loop_url, token, 1.2):
         _say_launch("本机 127.0.0.1:{} 已可连，改走回环（不必勾选局域网访问）。".format(port))
@@ -1898,7 +1928,8 @@ def ensure_local_lx(base_url, token, timeout, explicit_exe=None, wait_s=None, la
             "已在运行时改配置不会立刻生效，需重启洛雪或手动勾选。".format(port)
         )
     else:
-        exe = find_lx_exe(explicit_exe)
+        if not exe:
+            exe = find_lx_exe(explicit_exe)
         api_cfg = ensure_open_api_setting(exe, port)
         if api_cfg == "enabled":
             _say_launch("已在洛雪配置中启用开放 API（端口沿用已有值，缺省 {}）。".format(port))

@@ -75,7 +75,7 @@
 
 同一台电脑上也可以用命令行 REPL 切歌；Windows 可用 `--keys` 单键控制。详细步骤见下方「手机网页遥控」。
 
-> **本机 `--web` / `lx启动.bat` / `lx启动.sh` 可自动开启开放 API。** 官方洛雪没有命令行开关。脚本在本机自动拉起桌面端（当时没在运行）时，会先把配置里的 `openAPI.enable` 写成 `true`。Windows / macOS / Linux 都支持。已在运行时需重启或手动勾选。详见下方「洛雪里怎么开 API」。
+> **本机 `--web` / `lx启动.bat` / `lx启动.sh` 可自动开启开放 API，并关闭「发现新版本时尝试自动下载更新」。** 官方洛雪没有命令行开关。脚本在本机自动拉起桌面端（当时没在运行）时，会先把配置里的 `openAPI.enable` 写成 `true`。Windows / macOS / Linux 都支持。已在运行时需重启或手动勾选。详见下方「洛雪里怎么开 API」。
 
 官方文档：<https://lyswhut.github.io/lx-music-doc/desktop/open-api>（**v2.7.0+**；不保证更早的桌面端。）
 
@@ -84,6 +84,7 @@
 官方桌面端**没有**命令行参数可启用开放 API。本机用 `--web` / `lx启动.bat` / `lx启动.sh` 时，若开放 API 还没起来、且洛雪当时**没在运行**，脚本会在自动启动前写入配置：
 
 - 把 `setting["openAPI.enable"]` 写成 `true`
+- 同时把 `setting["common.tryAutoUpdate"]` 写成 `false`（只关自动下载更新，不关更新日志弹窗）
 - 配置文件：便携版为 `安装目录/portable/userData/LxDatas/config_v2.json`；否则为 `%APPDATA%\lx-music-desktop\LxDatas\config_v2.json`（macOS：`~/Library/Application Support/lx-music-desktop/LxDatas/config_v2.json`；Linux：`~/.config/lx-music-desktop/LxDatas/config_v2.json`）
 - 已有端口会保留；配置里没有端口时默认 `23330`
 - **不会**自动勾选「允许来自局域网的访问」（`bindLan`）。本机网页遥控一般不需要；跨设备才要自己勾
