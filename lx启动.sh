@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# macOS / Linux 一键启动网页遥控。Windows 请用 启动.bat。
+# macOS / Linux 一键启动网页遥控（默认同时开局域网 MCP）。Windows 请用 lx启动.bat。
+# 只要手机页：./lx启动.sh --no-mcp  或  LX_MCP=0 ./lx启动.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 

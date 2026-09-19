@@ -453,6 +453,7 @@ def print_help():
         "单次调用：python lx_control.py volume\n"
         "          python lx_control.py volume 50\n"
         "          python lx_control.py seek 30\n"
+        "网页+MCP： python lx_control.py --web（默认同时开局域网 MCP；--no-mcp 可关）\n"
         "MCP：     python lx_control.py --mcp\n"
         "局域网MCP： python lx_control.py --mcp-http"
     )
@@ -2371,7 +2372,7 @@ def show_phone_qr(phone_url, say):
     say("")
 
 
-def serve_web(base_url, token, timeout, bind, port):
+def serve_web(base_url, token, timeout, bind, port, mcp_server=None):
     server = ThreadingHTTPServer((bind, port), WebHandler)
     server.lx_base = base_url
     server.lx_token = token
@@ -2395,9 +2396,21 @@ def serve_web(base_url, token, timeout, bind, port):
     say("  代理洛雪：{}".format(base_url))
     if "127.0.0.1" not in base_url and "localhost" not in base_url:
         say("  洛雪若就在这台电脑，可用 --host 127.0.0.1（不必勾选局域网访问）")
-    say("电脑和手机同一 Wi-Fi；防火墙放行 TCP {}。Ctrl+C 停止。".format(port))
+    if mcp_server is not None:
+        mcp_port = mcp_server.server_address[1]
+        say("电脑和手机同一 Wi-Fi；防火墙放行 TCP {} 和 MCP {}。Ctrl+C 停止。".format(port, mcp_port))
+    else:
+        say("电脑和手机同一 Wi-Fi；防火墙放行 TCP {}。Ctrl+C 停止。".format(port))
     if getattr(server, "lx_loop_one", False):
         say("  单曲循环：开（结尾回开头；遥控切歌后跟新曲）")
+    if mcp_server is not None:
+        mcp_bind = getattr(mcp_server, "lx_mcp_bind", mcp_server.server_address[0])
+        _print_mcp_http_banner(
+            mcp_bind,
+            mcp_server.server_address[1],
+            mcp_server.lx_mcp_token,
+            base_url,
+        )
     health_check(base_url, token, timeout)
     sys.stdout.flush()
     try:
@@ -2407,6 +2420,7 @@ def serve_web(base_url, token, timeout, bind, port):
     finally:
         server.lx_loop_stop = True
         server.server_close()
+        stop_mcp_http_server(mcp_server)
     return 0
 
 
@@ -3072,8 +3086,26 @@ class McpHttpHandler(BaseHTTPRequestHandler):
         self._send_json(200, out, extra or None)
 
 
-def serve_mcp_http(base_url, token, timeout, bind, port, mcp_token):
-    """局域网 MCP：SSE（/sse + /messages）与 Streamable HTTP（/mcp）。"""
+def _env_flag_off(name):
+    raw = env_or(name, "")
+    return str(raw).strip().lower() in ("0", "false", "no", "off")
+
+
+def want_lan_mcp_with_web(args):
+    """--web 默认开局域网 MCP；--no-mcp 或 LX_MCP=0 则跳过。"""
+    if getattr(args, "no_mcp", False):
+        return False
+    return not _env_flag_off("LX_MCP")
+
+
+def mcp_http_opts(args):
+    bind = args.mcp_bind or env_or("LX_MCP_BIND", DEFAULT_MCP_HTTP_BIND)
+    port = args.mcp_port if args.mcp_port is not None else int(env_or("LX_MCP_PORT", DEFAULT_MCP_HTTP_PORT))
+    mcp_token = args.mcp_token if args.mcp_token is not None else env_or("LX_MCP_TOKEN", "")
+    return bind, port, (mcp_token or None)
+
+
+def make_mcp_http_server(base_url, token, timeout, bind, port, mcp_token):
     server = ThreadingHTTPServer((bind, port), McpHttpHandler)
     server.lx_base = base_url
     server.lx_token = token
@@ -3082,19 +3114,59 @@ def serve_mcp_http(base_url, token, timeout, bind, port, mcp_token):
     server.lx_mcp_sessions = {}
     server.lx_mcp_lock = threading.Lock()
     server.lx_mcp_stop = False
+    server.lx_mcp_bind = bind
+    return server
+
+
+def _release_mcp_http_sessions(server):
+    server.lx_mcp_stop = True
+    with server.lx_mcp_lock:
+        for q in list(server.lx_mcp_sessions.values()):
+            try:
+                q.put_nowait(None)
+            except Exception:
+                pass
+
+
+def stop_mcp_http_server(server):
+    """从其它线程关掉后台 MCP HTTP（shutdown 不能在 serve_forever 同线程调用）。"""
+    if server is None:
+        return
+    _release_mcp_http_sessions(server)
+    try:
+        server.shutdown()
+    except Exception:
+        pass
+    try:
+        server.server_close()
+    except Exception:
+        pass
+
+
+def start_mcp_http_background(base_url, token, timeout, bind, port, mcp_token):
+    """在后台线程开局域网 MCP。端口占用时返回 None，网页遥控继续。"""
+    try:
+        server = make_mcp_http_server(base_url, token, timeout, bind, port, mcp_token)
+    except OSError as exc:
+        print("局域网 MCP 未能监听 {}:{}：{}".format(bind, port, exc))
+        print("网页遥控仍可用。可换 --mcp-port / LX_MCP_PORT，或用 --no-mcp / LX_MCP=0 跳过。")
+        sys.stdout.flush()
+        return None
+    thread = threading.Thread(target=server.serve_forever, name="lxpy-mcp-http", daemon=True)
+    thread.start()
+    return server
+
+
+def serve_mcp_http(base_url, token, timeout, bind, port, mcp_token):
+    """局域网 MCP：SSE（/sse + /messages）与 Streamable HTTP（/mcp）。"""
+    server = make_mcp_http_server(base_url, token, timeout, bind, port, mcp_token)
     _print_mcp_http_banner(bind, port, server.lx_mcp_token, base_url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n已停止")
     finally:
-        server.lx_mcp_stop = True
-        with server.lx_mcp_lock:
-            for q in list(server.lx_mcp_sessions.values()):
-                try:
-                    q.put_nowait(None)
-                except Exception:
-                    pass
+        _release_mcp_http_sessions(server)
         server.server_close()
     return 0
 
@@ -3129,7 +3201,7 @@ def parse_args(argv):
     parser.add_argument(
         "--mcp-http",
         action="store_true",
-        help="启动局域网 MCP（SSE / Streamable HTTP），供其它电脑的 Cursor 连接",
+        help="单独启动局域网 MCP（SSE / Streamable HTTP）；--web 时默认已开启",
     )
     parser.add_argument(
         "--mcp-port",
@@ -3147,7 +3219,16 @@ def parse_args(argv):
         default=None,
         help="可选。局域网 MCP 口令，也可用 LX_MCP_TOKEN；未设则仅信任同一局域网",
     )
-    parser.add_argument("--web", action="store_true", help="启动手机网页遥控（本机代理洛雪 API）")
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="启动手机网页遥控（本机代理洛雪 API）；默认同时开局域网 MCP，可用 --no-mcp 关掉",
+    )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="与 --web 一起用时不启动局域网 MCP（只要手机网页）；也可用 LX_MCP=0",
+    )
     parser.add_argument("--web-port", type=int, default=None, help="网页端口，默认 23333，或 LX_WEB_PORT")
     parser.add_argument("--web-bind", default=None, help="网页监听地址，默认 0.0.0.0，或 LX_WEB_BIND")
     parser.add_argument(
@@ -3179,11 +3260,8 @@ def main(argv=None):
     token = args.token if args.token is not None else env_or("LX_API_TOKEN", "")
     token = token or None
 
-    if args.mcp_http:
-        bind = args.mcp_bind or env_or("LX_MCP_BIND", DEFAULT_MCP_HTTP_BIND)
-        port = args.mcp_port if args.mcp_port is not None else int(env_or("LX_MCP_PORT", DEFAULT_MCP_HTTP_PORT))
-        mcp_token = args.mcp_token if args.mcp_token is not None else env_or("LX_MCP_TOKEN", "")
-        mcp_token = mcp_token or None
+    if args.mcp_http and not args.web:
+        bind, port, mcp_token = mcp_http_opts(args)
         return serve_mcp_http(base_url, token, args.timeout, bind, port, mcp_token)
 
     if args.mcp:
@@ -3202,7 +3280,17 @@ def main(argv=None):
             wait_s=wait_s,
             launch=not args.no_launch,
         )
-        return serve_web(base_url, token, args.timeout, bind, port)
+        mcp_server = None
+        if want_lan_mcp_with_web(args):
+            mcp_bind, mcp_port, mcp_token = mcp_http_opts(args)
+            if mcp_port == port:
+                print("局域网 MCP 端口与网页端口相同（{}），已跳过 MCP。请用 --mcp-port 换端口。".format(port))
+                sys.stdout.flush()
+            else:
+                mcp_server = start_mcp_http_background(
+                    base_url, token, args.timeout, mcp_bind, mcp_port, mcp_token
+                )
+        return serve_web(base_url, token, args.timeout, bind, port, mcp_server=mcp_server)
 
     if args.command:
         key = ALIASES.get(args.command.lower())

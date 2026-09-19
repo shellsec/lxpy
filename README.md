@@ -19,7 +19,7 @@
 
 ---
 
-轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控，也可用 `--mcp`（本机 stdio）或 `--mcp-http`（局域网 HTTP/SSE）给 Cursor / Claude 当 MCP 工具。播放控制（含 MCP）只用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面、代理和 MCP 都在 `lx_control.py` 里。`--mcp-http` **不需要** segno。
+轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控；`lx启动.bat` / `--web` **默认同时**开局域网 MCP（`0.0.0.0:23334`），其它电脑的 Cursor 可直接连。只要手机页时用 `--no-mcp` 或 `LX_MCP=0`。本机 Cursor 仍可用 `--mcp`（stdio）；也可单独跑 `--mcp-http`。播放控制（含 MCP）只用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面、代理和 MCP 都在 `lx_control.py` 里。局域网 MCP **不需要** segno。
 
 <p align="center">
   <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="深色主题：暂停与音量">
@@ -71,7 +71,7 @@
 
 - 扫的是 `http://192.168.x.x:23333`，**不要扫** `127.0.0.1`（那是电脑自己访问用的）。
 - 控制台字体把码扫花时，打开同目录的 `remote-qr.png` 再扫。
-- 手机打不开：同一 Wi-Fi，防火墙放行 **TCP 23333**。
+- 手机打不开：同一 Wi-Fi，防火墙放行 **TCP 23333**（默认还会开 MCP **23334**，给其它电脑的 Cursor 用）。
 
 同一台电脑上也可以用命令行 REPL 切歌；Windows 可用 `--keys` 单键控制。详细步骤见下方「手机网页遥控」。
 
@@ -125,7 +125,7 @@
 python3 lx_control.py --web
 ```
 
-服务监听 `0.0.0.0:23333`，控制台会打印「本机」和「手机」地址，并画出**白底黑码**的局域网二维码（`http://192.168.x.x:23333`，不是 127.0.0.1）。用**微信扫一扫**扫控制台即可。控制台字体把码扫花时，再手动打开同目录的 `remote-qr.png`（不会自动弹窗）。扫不开：手机和电脑同一 Wi-Fi，防火墙放行 **TCP 23333**。
+默认同时监听网页 `0.0.0.0:23333` 和局域网 MCP `0.0.0.0:23334`。控制台会打印「本机」和「手机」地址，并画出**白底黑码**的局域网二维码（`http://192.168.x.x:23333`，不是 127.0.0.1），接着打印 MCP 局域网 URL（`http://192.168.x.x:23334/sse`）。用**微信扫一扫**扫控制台即可。控制台字体把码扫花时，再手动打开同目录的 `remote-qr.png`（不会自动弹窗）。扫不开：手机和电脑同一 Wi-Fi，防火墙放行 **TCP 23333**（以及 MCP **23334**）。只要手机遥控、不要 MCP：`--no-mcp` 或环境变量 `LX_MCP=0`。
 
 页面只打 23333，由**跑脚本的这台电脑**代理到洛雪 Open API，手机不用直连 23330。
 
@@ -145,21 +145,21 @@ LX_API_HOST=192.168.31.169 python3 lx_control.py --web
 还需要：
 
 1. 该系统已安装 **Python 3**（`python3` 或 `python` / Windows 的 `py -3`）。首次画二维码需要 `pip install -r requirements.txt`（启动脚本会试着装）。
-2. 防火墙放行 **TCP 23333**（Windows 首次可能弹窗；macOS「系统设置 → 网络 / 防火墙」；Linux 视发行版打开对应端口）。洛雪自己的 23330 要能被脚本所在机器访问。
+2. 防火墙放行 **TCP 23333**（默认还有 MCP **23334**；Windows 首次可能弹窗；macOS「系统设置 → 网络 / 防火墙」；Linux 视发行版打开对应端口）。洛雪自己的 23330 要能被脚本所在机器访问。
 3. 不要用流量/访客 Wi-Fi 隔离网络，否则手机摸不到电脑。微信必须扫局域网地址，不要扫 127.0.0.1。
 
-网页端口可改：`--web-port 23333` 或环境变量 `LX_WEB_PORT`。
+网页端口可改：`--web-port 23333` 或环境变量 `LX_WEB_PORT`。只要网页、不要 MCP：`python3 lx_control.py --web --no-mcp`（或 `LX_MCP=0`）。
 
 命令行 REPL：`python3 lx_control.py`（不要加 `--web`）。`--keys` 单键热键只在 Windows 可用，其它系统会退回普通 REPL。
 
 ## Cursor / Claude MCP
 
-MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.py --web` 或 `lx启动.bat`；Cursor / Claude 用 MCP 调同一套官方 Open API。两边可以同时开。
+MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.py --web` 或 `lx启动.bat`。`--web` / `lx启动.bat` / `lx启动.sh` **默认同时**启动局域网 MCP（`0.0.0.0:23334`），其它电脑的 Cursor 可直接连控制台打印的局域网 URL。只要网页时加 `--no-mcp` 或 `LX_MCP=0`。
 
-- **本机 Cursor**：`--mcp`（stdio，只给启动它的那台电脑用）
-- **其它电脑的 Cursor**：`--mcp-http`（SSE / Streamable HTTP，局域网连接）
+- **本机 Cursor**：`--mcp`（stdio，只给启动它的那台电脑用；行为不变）
+- **其它电脑的 Cursor**：跟 `--web` 一起默认已开；也可单独 `--mcp-http`（SSE / Streamable HTTP）
 
-未指定主机时默认连本机洛雪 `127.0.0.1:23330`（与 `--web` 相同）。可用 `--host` / `--port` / `--url` / `--token`，或环境变量 `LX_API_HOST`、`LX_API_PORT`、`LX_API_URL`、`LX_API_TOKEN`。不会自动启动洛雪桌面端；请先在洛雪里启用开放 API。
+未指定主机时默认连本机洛雪 `127.0.0.1:23330`（与 `--web` 相同）。可用 `--host` / `--port` / `--url` / `--token`，或环境变量 `LX_API_HOST`、`LX_API_PORT`、`LX_API_URL`、`LX_API_TOKEN`。单独 `--mcp` / `--mcp-http` 不会自动启动洛雪桌面端；走 `--web` 时仍按网页遥控逻辑自动启动。请先在洛雪里启用开放 API。
 
 ### 本机 stdio（`--mcp`）
 
@@ -189,17 +189,19 @@ python lx_control.py --mcp
 
 把 `cwd` 改成你的仓库路径。Windows 若 `python` 不可用，把 `command` 改成 `py`，`args` 改成 `["-3", "lx_control.py", "--mcp"]`；macOS / Linux 可用 `python3`。前面有反代时再加 `"LX_API_TOKEN"`。
 
-### 局域网远程 MCP（`--mcp-http`）
+### 局域网远程 MCP（默认随 `--web` 开启）
 
 让**另一台电脑**上的 Cursor（或其它 MCP 客户端）通过网络连到**跑洛雪的这台电脑**，远程切歌/暂停/音量。这是你自己的局域网遥控，不是给公网用的后门。
 
-在**洛雪所在电脑**启动（默认监听 `0.0.0.0:23334`，不占用网页 23333 和 Open API 23330）：
+`lx启动.bat` / `lx启动.sh` / `python lx_control.py --web` **默认**已在同一进程里开局域网 MCP（`0.0.0.0:23334`，不占用网页 23333 和 Open API 23330）。控制台会在网页二维码后面打印 MCP 本机/局域网 URL。只要手机页：`--no-mcp` 或 `LX_MCP=0`。
+
+也可单独启动（不要网页遥控时）：
 
 ```bash
 python lx_control.py --mcp-http
 ```
 
-控制台会打印本机和局域网 URL（类似 `--web`，**不需要** segno / 二维码）。把局域网地址粘到另一台电脑的 Cursor。端口可改：`--mcp-port 23334` 或 `LX_MCP_PORT`。监听地址：`--mcp-bind 0.0.0.0` 或 `LX_MCP_BIND`。
+单独启动时控制台同样打印本机和局域网 URL（**不需要** segno / 二维码）。把局域网地址粘到另一台电脑的 Cursor。端口可改：`--mcp-port 23334` 或 `LX_MCP_PORT`。监听地址：`--mcp-bind 0.0.0.0` 或 `LX_MCP_BIND`。
 
 **另一台电脑**与洛雪电脑须在**同一 Wi-Fi / 局域网**。在那台电脑的 Cursor：Settings → MCP，或 `~/.cursor/mcp.json`（把 IP 换成控制台打印的局域网地址，不要用 `127.0.0.1`）：
 
@@ -325,6 +327,7 @@ python lx_control.py --url http://192.168.31.169:23330 next
 | `LX_API_TOKEN` | 可选。官方 API 不需要 |
 | `LX_WEB_PORT` | 网页端口，默认 `23333` |
 | `LX_WEB_BIND` | 网页监听地址，默认 `0.0.0.0` |
+| `LX_MCP` | 设为 `0` / `false` / `off` 时，`--web` 不启动局域网 MCP（与 `--no-mcp` 相同） |
 | `LX_MCP_PORT` | 局域网 MCP 端口，默认 `23334` |
 | `LX_MCP_BIND` | 局域网 MCP 监听地址，默认 `0.0.0.0` |
 | `LX_MCP_TOKEN` | 可选。局域网 MCP 口令；未设则仅信任同一局域网 |
@@ -363,7 +366,7 @@ REPL 里 `next` / `play-next` 都会打到 `/skip-next`。官方没有播放模�
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| 另一台电脑 Cursor 连不上 MCP | 没开 `--mcp-http`、不是同一 Wi-Fi、防火墙拦了 **TCP 23334**、`url` 写成了 `127.0.0.1`（应填洛雪电脑的局域网 IP） |
+| 另一台电脑 Cursor 连不上 MCP | 没用 `--web`（或加了 `--no-mcp` / `LX_MCP=0`）且没单独开 `--mcp-http`、不是同一 Wi-Fi、防火墙拦了 **TCP 23334**、`url` 写成了 `127.0.0.1`（应填洛雪电脑的局域网 IP）；23334 已被占用时控制台会提示，网页遥控仍可用 |
 | MCP 返回 401 | 设了 `--mcp-token` / `LX_MCP_TOKEN` 但没带 `Authorization: Bearer` 或 `?token=` |
 | 手机打不开网页 | 电脑没开 `--web`、不是同一 Wi-Fi、防火墙拦了 **23333** |
 | 微信扫码进不去 | 扫的应是 `http://电脑局域网IP:23333`；可改扫 `remote-qr.png`；检查防火墙 23333 |

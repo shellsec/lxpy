@@ -1,4 +1,5 @@
 @echo off
+REM 默认同时开网页遥控 + 局域网 MCP。只要手机页：lx启动.bat --no-mcp  或  set LX_MCP=0
 cd /d "%~dp0"
 chcp 65001 >nul
 
@@ -26,7 +27,7 @@ if errorlevel 1 (
   )
 )
 
-%PY% -u lx_control.py --web
+%PY% -u lx_control.py --web %*
 if errorlevel 1 (
   echo.
   pause
