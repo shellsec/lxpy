@@ -448,49 +448,46 @@ def print_help():
         "  q / quit                 退出\n"
         "单次调用：python lx_control.py volume\n"
         "          python lx_control.py volume 50\n"
-        "          python lx_control.py seek 30"
+        "          python lx_control.py seek 30\n"
+        "MCP：     python lx_control.py --mcp"
     )
 
 
-def run_command(cmd, base_url, token, timeout, args=None):
+def execute_command(cmd, base_url, token, timeout, args=None):
+    """执行控制命令，返回可读文本。quit/exit 返回 None。"""
     args = list(args or [])
-    if cmd == "help":
-        print_help()
-        return True
     if cmd in ("quit", "exit"):
-        return False
+        return None
+    if cmd == "help":
+        return None
     if cmd == "status":
-        print(format_status(get_status(base_url, token, timeout)))
-        return True
+        return format_status(get_status(base_url, token, timeout))
     if cmd == "lyric":
         code, _, text = call(base_url, "/lyric", token=token, timeout=timeout)
         if code != 200:
             raise RuntimeError("读取歌词失败 HTTP {}：{}".format(code, text[:300]))
-        print(text or "(空歌词)")
-        return True
+        return text or "(空歌词)"
     if cmd == "lyric-all":
         code, _, text = call(base_url, "/lyric-all", token=token, timeout=timeout)
         if code != 200:
             raise RuntimeError("读取全部歌词失败 HTTP {}：{}".format(code, text[:300]))
         data = parse_status_body(text)
-        print(json.dumps(data, ensure_ascii=False, indent=2) if data else (text or "(空)"))
-        return True
+        return json.dumps(data, ensure_ascii=False, indent=2) if data else (text or "(空)")
     if cmd == "volume":
         if not args:
-            print(format_volume(get_status(base_url, token, timeout)))
-            return True
+            return format_volume(get_status(base_url, token, timeout))
         current = get_status(base_url, token, timeout).get("volume")
-        value = parse_volume_arg(args[0], current)
+        value = parse_volume_arg(str(args[0]).strip(), current)
         ok, status = do_control(
             base_url, "/volume", token, timeout, query={"volume": str(value)}
         )
-        print("/volume?volume={} {}".format(value, ok))
-        print(format_volume(status) if status else format_volume({"volume": value}))
-        return True
+        lines = ["/volume?volume={} {}".format(value, ok)]
+        lines.append(format_volume(status) if status else format_volume({"volume": value}))
+        return "\n".join(lines)
     if cmd in ("mute", "unmute"):
-        if cmd == "unmute" or (args and args[0].lower() in ("off", "false", "0")):
+        if cmd == "unmute" or (args and str(args[0]).lower() in ("off", "false", "0")):
             flag = "false"
-        elif args and args[0].lower() in ("on", "true", "1"):
+        elif args and str(args[0]).lower() in ("on", "true", "1"):
             flag = "true"
         elif cmd == "mute" and not args:
             flag = "true"
@@ -499,28 +496,29 @@ def run_command(cmd, base_url, token, timeout, args=None):
         ok, status = do_control(
             base_url, "/mute", token, timeout, query={"mute": flag}
         )
-        print("/mute?mute={} {}".format(flag, ok))
-        print(format_volume(status) if status else "")
-        return True
+        lines = ["/mute?mute={} {}".format(flag, ok)]
+        if status:
+            lines.append(format_volume(status))
+        return "\n".join(lines)
     if cmd == "seek":
         if not args:
             raise RuntimeError("用法：seek 30  或  seek 1:20")
-        offset = parse_seek_arg(args[0])
+        offset = parse_seek_arg(str(args[0]))
         ok, status = do_control(
             base_url, "/seek", token, timeout, query={"offset": "{:.3f}".format(offset)}
         )
-        print("/seek?offset={:.3f} {}".format(offset, ok))
+        lines = ["/seek?offset={:.3f} {}".format(offset, ok)]
         if status:
-            print(format_status(status))
-        return True
+            lines.append(format_status(status))
+        return "\n".join(lines)
     if cmd == "toggle":
         data = get_status(base_url, token, timeout)
         path = "/pause" if data.get("status") == "playing" else "/play"
         ok, status = do_control(base_url, path, token, timeout)
-        print("{} {}".format(path, ok))
+        lines = ["{} {}".format(path, ok)]
         if status:
-            print(format_status(status))
-        return True
+            lines.append(format_status(status))
+        return "\n".join(lines)
 
     path_map = {
         "next": "/skip-next",
@@ -532,9 +530,21 @@ def run_command(cmd, base_url, token, timeout, args=None):
     }
     path = path_map[cmd]
     ok, status = do_control(base_url, path, token, timeout)
-    print("{} {}".format(path, ok))
+    lines = ["{} {}".format(path, ok)]
     if status:
-        print(format_status(status))
+        lines.append(format_status(status))
+    return "\n".join(lines)
+
+
+def run_command(cmd, base_url, token, timeout, args=None):
+    if cmd == "help":
+        print_help()
+        return True
+    if cmd in ("quit", "exit"):
+        return False
+    text = execute_command(cmd, base_url, token, timeout, args=args)
+    if text:
+        print(text)
     return True
 
 
@@ -2395,6 +2405,302 @@ def serve_web(base_url, token, timeout, bind, port):
     return 0
 
 
+MCP_SERVER_NAME = "lxpy"
+MCP_SERVER_VERSION = "1.0.0"
+MCP_PROTOCOL = "2024-11-05"
+MCP_TOOL_NAMES = (
+    "status",
+    "play",
+    "pause",
+    "toggle",
+    "next",
+    "prev",
+    "volume",
+    "mute",
+    "unmute",
+    "seek",
+    "lyric",
+    "lyric-all",
+    "collect",
+    "uncollect",
+)
+
+
+def _mcp_arg_text(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value == int(value):
+        return str(int(value))
+    return str(value)
+
+
+def mcp_tools():
+    empty = {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+    return [
+        {
+            "name": "status",
+            "description": "当前曲目/播放状态（歌名、歌手、进度、音量、静音、收藏）。官方 GET /status。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "play",
+            "description": "播放。官方 GET /play。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "pause",
+            "description": "暂停。官方 GET /pause。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "toggle",
+            "description": "按当前状态切换播放/暂停。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "next",
+            "description": "下一曲。官方 GET /skip-next。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "prev",
+            "description": "上一曲。官方 GET /skip-prev。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "volume",
+            "description": (
+                "读或设置音量 0-100。不传 value 只读；"
+                "value 可以是 50，或相对调节 +10 / -10。官方 GET /volume。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": ["string", "integer"],
+                        "description": "绝对音量 0-100，或 +10 / -10。省略则只读。",
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "mute",
+            "description": "静音。官方 GET /mute?mute=true。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "unmute",
+            "description": "取消静音。官方 GET /mute?mute=false。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "seek",
+            "description": "跳转到指定进度。官方 GET /seek?offset=秒。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "offset": {
+                        "type": ["string", "number"],
+                        "description": "秒数（如 30）或分:秒（如 1:20）",
+                    }
+                },
+                "required": ["offset"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "lyric",
+            "description": "当前曲 LRC 文本。官方 GET /lyric。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "lyric-all",
+            "description": "全部歌词 JSON。官方 GET /lyric-all。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "collect",
+            "description": "收藏当前曲。官方 GET /collect。",
+            "inputSchema": empty,
+        },
+        {
+            "name": "uncollect",
+            "description": "取消收藏当前曲。官方 GET /uncollect。",
+            "inputSchema": empty,
+        },
+    ]
+
+
+def _mcp_tool_argv(name, arguments):
+    arguments = arguments if isinstance(arguments, dict) else {}
+    if name == "volume":
+        value = arguments.get("value", arguments.get("volume"))
+        text = _mcp_arg_text(value)
+        if text is None or text == "":
+            return []
+        return [text]
+    if name == "seek":
+        offset = arguments.get("offset", arguments.get("value"))
+        text = _mcp_arg_text(offset)
+        if text is None or text == "":
+            raise RuntimeError("seek 需要 offset（秒，如 30，或 1:20）")
+        return [text]
+    return []
+
+
+def call_mcp_tool(name, arguments, base_url, token, timeout):
+    if name not in MCP_TOOL_NAMES:
+        raise RuntimeError("未知工具：{}（官方 Open API 没有搜歌/歌单接口）".format(name))
+    if name == "status":
+        data = get_status(base_url, token, timeout)
+        return format_status(data) + "\n\n" + json.dumps(data, ensure_ascii=False, indent=2)
+    argv = _mcp_tool_argv(name, arguments)
+    return execute_command(name, base_url, token, timeout, args=argv) or ""
+
+
+def _mcp_read_message(stdin):
+    """读一条 JSON-RPC：官方 SDK 的 Content-Length，或一行一个 JSON。"""
+    while True:
+        first = stdin.readline()
+        if not first:
+            return None
+        stripped = first.lstrip(b"\xef\xbb\xbf").strip()
+        if not stripped:
+            continue
+        if stripped[:1] == b"{":
+            return json.loads(stripped.decode("utf-8"))
+        headers = {}
+        line = first
+        while line not in (b"\r\n", b"\n"):
+            if not line:
+                return None
+            decoded = line.decode("utf-8", "replace")
+            if ":" in decoded:
+                key, val = decoded.split(":", 1)
+                headers[key.strip().lower()] = val.strip()
+            line = stdin.readline()
+        raw_len = headers.get("content-length")
+        if not raw_len:
+            continue
+        length = int(raw_len)
+        body = b""
+        while len(body) < length:
+            chunk = stdin.read(length - len(body))
+            if not chunk:
+                return None
+            body += chunk
+        return json.loads(body.decode("utf-8"))
+
+
+def _mcp_write_message(stdout, payload):
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    stdout.write("Content-Length: {}\r\n\r\n".format(len(body)).encode("ascii"))
+    stdout.write(body)
+    stdout.flush()
+
+
+def _mcp_result(req_id, result):
+    return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+
+def _mcp_error(req_id, code, message):
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+def handle_mcp_request(msg, base_url, token, timeout):
+    method = msg.get("method") or ""
+    req_id = msg.get("id")
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    if method.startswith("notifications/") or req_id is None:
+        return None
+    if method == "initialize":
+        requested = params.get("protocolVersion") or MCP_PROTOCOL
+        return _mcp_result(
+            req_id,
+            {
+                "protocolVersion": requested if isinstance(requested, str) else MCP_PROTOCOL,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": MCP_SERVER_NAME, "version": MCP_SERVER_VERSION},
+                "instructions": (
+                    "洛雪音乐桌面端 Open API 控制。工具与官方 GET 接口一一对应："
+                    "status/play/pause/toggle/next/prev/volume/mute/unmute/seek/"
+                    "lyric/lyric-all/collect/uncollect。"
+                    "没有搜歌、歌单、播放模式接口。不替代 --web 手机遥控。"
+                ),
+            },
+        )
+    if method == "ping":
+        return _mcp_result(req_id, {})
+    if method == "tools/list":
+        return _mcp_result(req_id, {"tools": mcp_tools()})
+    if method == "tools/call":
+        name = params.get("name") or ""
+        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        try:
+            text = call_mcp_tool(name, arguments, base_url, token, timeout)
+            return _mcp_result(
+                req_id,
+                {"content": [{"type": "text", "text": text}], "isError": False},
+            )
+        except Exception as exc:
+            return _mcp_result(
+                req_id,
+                {"content": [{"type": "text", "text": str(exc)}], "isError": True},
+            )
+    if method in ("resources/list", "prompts/list"):
+        key = "resources" if method == "resources/list" else "prompts"
+        return _mcp_result(req_id, {key: []})
+    return _mcp_error(req_id, -32601, "Method not found: {}".format(method))
+
+
+def serve_mcp(base_url, token, timeout):
+    """stdio JSON-RPC MCP。日志只写 stderr，stdout 只走协议帧。"""
+    if sys.platform == "win32":
+        try:
+            import msvcrt
+
+            msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+        except Exception:
+            pass
+    stdin = sys.stdin.buffer
+    stdout = sys.stdout.buffer
+    sys.stderr.write("lxpy MCP 已启动（stdio），代理 {}\n".format(base_url))
+    sys.stderr.flush()
+    try:
+        while True:
+            try:
+                msg = _mcp_read_message(stdin)
+            except ValueError as exc:
+                sys.stderr.write("MCP 解析失败：{}\n".format(exc))
+                sys.stderr.flush()
+                continue
+            if msg is None:
+                return 0
+            if isinstance(msg, list):
+                for item in msg:
+                    if isinstance(item, dict):
+                        reply = handle_mcp_request(item, base_url, token, timeout)
+                        if reply is not None:
+                            _mcp_write_message(stdout, reply)
+                continue
+            if not isinstance(msg, dict):
+                continue
+            reply = handle_mcp_request(msg, base_url, token, timeout)
+            if reply is not None:
+                _mcp_write_message(stdout, reply)
+    except KeyboardInterrupt:
+        return 0
+    return 0
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="洛雪音乐 Open API 控制端")
     parser.add_argument(
@@ -2417,6 +2723,11 @@ def parse_args(argv):
     )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="对话超时秒数，默认 5")
     parser.add_argument("--keys", action="store_true", help="Windows 单键热键循环（n/p/空格/s/q）")
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="以 stdio MCP 服务运行，供 Cursor / Claude 等调用（不替代 --web）",
+    )
     parser.add_argument("--web", action="store_true", help="启动手机网页遥控（本机代理洛雪 API）")
     parser.add_argument("--web-port", type=int, default=None, help="网页端口，默认 23333，或 LX_WEB_PORT")
     parser.add_argument("--web-bind", default=None, help="网页监听地址，默认 0.0.0.0，或 LX_WEB_BIND")
@@ -2441,13 +2752,16 @@ def parse_args(argv):
 
 def main(argv=None):
     args = parse_args(argv)
-    # 网页遥控未指定主机时连本机，避免默认局域网 IP 换网段后被当成远程而不自动启动
-    if args.web and args.host is None and args.url is None:
+    # 网页遥控 / MCP 未指定主机时连本机，避免默认局域网 IP 换网段后连错
+    if (args.web or args.mcp) and args.host is None and args.url is None:
         if not env_or("LX_API_HOST", "") and not env_or("LX_API_URL", ""):
             args.host = "127.0.0.1"
     base_url = build_base_url(args)
     token = args.token if args.token is not None else env_or("LX_API_TOKEN", "")
     token = token or None
+
+    if args.mcp:
+        return serve_mcp(base_url, token, args.timeout)
 
     if args.web:
         bind = args.web_bind or env_or("LX_WEB_BIND", DEFAULT_WEB_BIND)

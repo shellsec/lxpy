@@ -19,7 +19,7 @@
 
 ---
 
-轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控。播放控制用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面和代理都在 `lx_control.py` 里。
+轻量 Python 脚本：连洛雪桌面端本地开放 API，切歌、播放暂停、看当前曲、调音量/静音/进度、收藏。电脑可开网页给手机遥控，也可用 `--mcp` 给 Cursor / Claude 当 MCP 工具。播放控制（含 MCP）只用 **Python 3 标准库**；微信扫码二维码需要 `segno`（见 `requirements.txt`，`启动.bat` / `启动.sh` 会尝试安装）。页面、代理和 MCP 都在 `lx_control.py` 里。
 
 <p align="center">
   <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="深色主题：暂停与音量">
@@ -152,6 +152,51 @@ LX_API_HOST=192.168.31.169 python3 lx_control.py --web
 
 命令行 REPL：`python3 lx_control.py`（不要加 `--web`）。`--keys` 单键热键只在 Windows 可用，其它系统会退回普通 REPL。
 
+## Cursor / Claude MCP
+
+MCP **不替代** `--web` 手机遥控：手机扫码仍用 `python lx_control.py --web` 或 `lx启动.bat`；Cursor / Claude 用 stdio MCP 调同一套官方 Open API。两边可以同时开。
+
+不额外装包。启动：
+
+```bash
+python lx_control.py --mcp
+```
+
+未指定主机时默认 `127.0.0.1:23330`（与 `--web` 相同）。可用 `--host` / `--port` / `--url` / `--token`，或环境变量 `LX_API_HOST`、`LX_API_PORT`、`LX_API_URL`、`LX_API_TOKEN`。不会自动启动洛雪桌面端；请先在洛雪里启用开放 API。
+
+在 Cursor 里：Settings → MCP，或项目 `.cursor/mcp.json` / 用户 `~/.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "command": "python",
+      "args": ["lx_control.py", "--mcp"],
+      "cwd": "E:/GITHUB/lxpy",
+      "env": {
+        "LX_API_HOST": "127.0.0.1",
+        "LX_API_PORT": "23330"
+      }
+    }
+  }
+}
+```
+
+把 `cwd` 改成你的仓库路径。Windows 若 `python` 不可用，把 `command` 改成 `py`，`args` 改成 `["-3", "lx_control.py", "--mcp"]`；macOS / Linux 可用 `python3`。前面有反代时再加 `"LX_API_TOKEN"`。
+
+工具与现有命令一一对应（官方 Open API **没有**搜歌/歌单/播放模式）：
+
+| 工具 | 作用 |
+| --- | --- |
+| `status` | 当前曲目与状态 |
+| `play` / `pause` / `toggle` | 播放 / 暂停 / 切换 |
+| `next` / `prev` | 下一曲 / 上一曲 |
+| `volume` | 不传 `value` 只读；`50` 设置；`+10` / `-10` 相对调节 |
+| `mute` / `unmute` | 静音 / 取消静音 |
+| `seek` | 需要 `offset`（秒或 `1:20`） |
+| `lyric` / `lyric-all` | 当前 LRC / 全部歌词 JSON |
+| `collect` / `uncollect` | 收藏 / 取消收藏 |
+
 ## 命令行怎么用
 
 在本目录：
@@ -222,7 +267,7 @@ python lx_control.py --url http://192.168.31.169:23330 next
 
 | 变量 | 含义 |
 | --- | --- |
-| `LX_API_HOST` | 洛雪 Open API 主机。命令行默认 `192.168.31.169`；`--web` / `启动.bat` / `启动.sh` 未指定时默认 `127.0.0.1` |
+| `LX_API_HOST` | 洛雪 Open API 主机。命令行默认 `192.168.31.169`；`--web` / `--mcp` / `启动.bat` / `启动.sh` 未指定时默认 `127.0.0.1` |
 | `LX_API_PORT` | 端口，默认 `23330` |
 | `LX_API_URL` | 完整基址，设置后覆盖 host/port |
 | `LX_API_TOKEN` | 可选。官方 API 不需要 |

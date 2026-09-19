@@ -19,7 +19,7 @@ Open source takes effort — sponsorship is welcome:
 
 ---
 
-A small Python tool that talks to the LX Music desktop Open API: skip tracks, play/pause, show the current song, volume/mute/seek, and collect. The computer can also host a web page so a phone can remote-control playback. Playback control uses the **Python 3 standard library**; WeChat QR codes need `segno` (see `requirements.txt`; `lx启动.bat` / `lx启动.sh` will try to install it). The page and proxy both live in `lx_control.py`.
+A small Python tool that talks to the LX Music desktop Open API: skip tracks, play/pause, show the current song, volume/mute/seek, and collect. The computer can host a web page for phone remote control, or run `--mcp` so Cursor / Claude can drive LX Music as an MCP server. Playback control (including MCP) uses the **Python 3 standard library**; WeChat QR codes need `segno` (see `requirements.txt`; `lx启动.bat` / `lx启动.sh` will try to install it). The page, proxy, and MCP server all live in `lx_control.py`.
 
 <p align="center">
   <img src="docs/screenshots/01-dark-controls.jpg" width="180" alt="Dark theme: paused with volume">
@@ -152,6 +152,51 @@ Web port: `--web-port 23333` or `LX_WEB_PORT`.
 
 CLI REPL: `python3 lx_control.py` (do not add `--web`). `--keys` single-key hotkeys are Windows-only; other OS fall back to a normal REPL.
 
+## Cursor / Claude MCP
+
+MCP does **not** replace the `--web` phone remote: phones still use `python lx_control.py --web` or `lx启动.bat`. Cursor / Claude talk to the same official Open API over stdio MCP. You can run both at once.
+
+No extra packages. Start:
+
+```bash
+python lx_control.py --mcp
+```
+
+When no host is set it defaults to `127.0.0.1:23330` (same as `--web`). Override with `--host` / `--port` / `--url` / `--token`, or `LX_API_HOST`, `LX_API_PORT`, `LX_API_URL`, `LX_API_TOKEN`. It does not auto-launch LX Music; enable Open API in the desktop app first.
+
+In Cursor: Settings → MCP, or project `.cursor/mcp.json` / user `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "lxpy": {
+      "command": "python",
+      "args": ["lx_control.py", "--mcp"],
+      "cwd": "E:/GITHUB/lxpy",
+      "env": {
+        "LX_API_HOST": "127.0.0.1",
+        "LX_API_PORT": "23330"
+      }
+    }
+  }
+}
+```
+
+Change `cwd` to your clone. On Windows, if `python` is missing, set `command` to `py` and `args` to `["-3", "lx_control.py", "--mcp"]`. On macOS / Linux use `python3`. Add `"LX_API_TOKEN"` only if you have a reverse proxy in front.
+
+Tools map 1:1 to existing commands (the official Open API has **no** search / playlist / play-mode endpoints):
+
+| Tool | Action |
+| --- | --- |
+| `status` | Current track and player state |
+| `play` / `pause` / `toggle` | Play / pause / toggle |
+| `next` / `prev` | Next / previous track |
+| `volume` | Omit `value` to read; `50` to set; `+10` / `-10` relative |
+| `mute` / `unmute` | Mute / unmute |
+| `seek` | Requires `offset` (seconds or `1:20`) |
+| `lyric` / `lyric-all` | Current LRC / full lyrics JSON |
+| `collect` / `uncollect` | Collect / uncollect |
+
 ## Command-line usage
 
 In this directory:
@@ -222,7 +267,7 @@ Environment variables (CLI flags win):
 
 | Variable | Meaning |
 | --- | --- |
-| `LX_API_HOST` | Open API host. CLI default `192.168.31.169`; `--web` / `lx启动.bat` / `lx启动.sh` default `127.0.0.1` when unset |
+| `LX_API_HOST` | Open API host. CLI default `192.168.31.169`; `--web` / `--mcp` / `lx启动.bat` / `lx启动.sh` default `127.0.0.1` when unset |
 | `LX_API_PORT` | Port, default `23330` |
 | `LX_API_URL` | Full base URL; overrides host/port when set |
 | `LX_API_TOKEN` | Optional. Official API does not need it |
