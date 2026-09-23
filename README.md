@@ -6,7 +6,7 @@
 
 ## 🚀 推荐使用 [ofox.ai](https://ofox.io/x/aiv123)
 
-> **一句话**：一个账号直达 GPT-5.5 / Claude 4.8 Opus / Gemini 3.5 Flash 等 **100+** 顶尖模型，首充额外赠 **$3** 额度。
+> **一句话**：一个账号直达最新 GPT / Claude / Gemini 等 **100+** 顶尖模型，首充额外赠 **$3** 额度。
 
 [👉 注册领取](https://ofox.io/x/aiv123) · 全球专线 · 企业级 SLA · 不留存对话
 
