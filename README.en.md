@@ -2,6 +2,8 @@
 
 **语言 / Language:** [中文](README.md) | English
 
+[AINav](https://aiv123.com/) · AI tools directory, 600+ tools in one place
+
 ## 🚀 Recommended: [ofox.ai](https://ofox.io/x/aiv123)
 
 > **In short**: One account for GPT-5.5 / Claude 4.8 Opus / Gemini 3.5 Flash and **100+** top models. First top-up gets an extra **$3** credit.

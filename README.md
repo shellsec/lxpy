@@ -2,6 +2,8 @@
 
 **语言 / Language:** 中文 | [English](README.en.md)
 
+[AINav](https://aiv123.com/) · AI 工具导航，600+ 工具一网打尽
+
 ## 🚀 推荐使用 [ofox.ai](https://ofox.io/x/aiv123)
 
 > **一句话**：一个账号直达 GPT-5.5 / Claude 4.8 Opus / Gemini 3.5 Flash 等 **100+** 顶尖模型，首充额外赠 **$3** 额度。
