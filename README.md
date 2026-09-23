@@ -2,7 +2,7 @@
 
 **语言 / Language:** 中文 | [English](README.en.md)
 
-[AINav](https://aiv123.com/) · AI 工具导航，600+ 工具一网打尽
+[aiv123.com](https://aiv123.com/) · AI 工具导航，600+ 工具一网打尽
 
 ## 🚀 推荐使用 [ofox.ai](https://ofox.io/x/aiv123)
 

@@ -2,7 +2,7 @@
 
 **语言 / Language:** [中文](README.md) | English
 
-[AINav](https://aiv123.com/) · AI tools directory, 600+ tools in one place
+[aiv123.com](https://aiv123.com/) · AI tools directory, 600+ tools in one place
 
 ## 🚀 Recommended: [ofox.ai](https://ofox.io/x/aiv123)
 
