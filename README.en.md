@@ -8,11 +8,13 @@
 
 > **In short**: One account for the latest GPT / Claude / Gemini and **100+** top models. First top-up gets an extra **$3** credit.
 
+Text, image, video, and embeddings in one place. Caching supported — repeat calls stay cheaper and faster.
+
 [👉 Sign up](https://ofox.io/x/aiv123) · Global dedicated lines · Enterprise SLA · No conversation retention
 
-| ⚡️ Fast & Stable | 🧠 Full Model Coverage | 🛡️ Privacy |
+| ⚡️ Faster & Leaner | 🧠 Models & Modalities | 🛡️ Privacy |
 |:---:|:---:|:---:|
-| Global dedicated lines, enterprise SLA | 100+ models, one account | No conversation retention |
+| Global lines, enterprise SLA, plus caching | 100+ models · text / image / video / embeddings | No conversation retention |
 
 ## ☕ Buy Me a Coke
 
